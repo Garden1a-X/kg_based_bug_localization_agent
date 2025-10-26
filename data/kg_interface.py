@@ -370,7 +370,251 @@ class KnowledgeGraphInterface:
                         queue.append((neighbor_id, path_ids + [neighbor_id]))
 
         return None
-    
+
+    def _find_indirect_callees(self, func_name: str) -> List[tuple]:
+        """
+        查找函数的间接调用目标
+
+        Args:
+            func_name: 函数名
+
+        Returns:
+            间接调用列表，每项为 (目标函数名, 桥接信息)
+        """
+        indirect_calls = []
+
+        # 获取所有可能的目标函数（限制搜索范围提高性能）
+        if 'FUNCTION' not in self.entities:
+            return indirect_calls
+
+        # 只检查常见的间接调用目标（可以基于启发式规则优化）
+        # 这里我们检查所有函数，但实际应用中可以优化
+        candidate_functions = list(self.entities['FUNCTION'].keys())
+
+        # 限制候选数量，避免性能问题
+        MAX_CANDIDATES = 100
+        if len(candidate_functions) > MAX_CANDIDATES:
+            # 优先检查名字相关的函数
+            candidate_functions = candidate_functions[:MAX_CANDIDATES]
+
+        for target_func in candidate_functions:
+            # 检查异步调用
+            async_bridge = self.check_async_pattern(func_name, target_func)
+            if async_bridge:
+                indirect_calls.append((target_func, async_bridge))
+                continue
+
+            # 检查函数指针
+            fp_bridge = self.check_function_pointer_pattern(func_name, target_func)
+            if fp_bridge:
+                indirect_calls.append((target_func, fp_bridge))
+
+        return indirect_calls
+
+    def find_call_path_with_indirect(self, start: str, end: str, max_depth: int = 10) -> Optional[Dict]:
+        """
+        查找调用路径（支持间接调用）
+
+        Args:
+            start: 起始函数名
+            end: 目标函数名
+            max_depth: 最大搜索深度
+
+        Returns:
+            包含路径和边类型信息的字典，如果不存在返回None
+            {
+                'path': [函数名列表],
+                'edges': [边类型列表], # 'direct' 或 {'type': 'indirect', 'bridge': ...}
+            }
+        """
+        # 获取起点和终点的实体
+        start_entity = self.find_function(start)
+        end_entity = self.find_function(end)
+
+        if not start_entity or not end_entity:
+            return None
+
+        start_id = start_entity.get('id')
+        end_id = end_entity.get('id')
+
+        if not start_id or not end_id:
+            return None
+
+        # BFS搜索（支持间接调用）
+        from collections import deque
+
+        queue = deque([(start_id, [start_id], [])])  # (当前id, 路径ids, 边类型)
+        visited = {start_id}
+
+        while queue:
+            current_id, path_ids, edge_types = queue.popleft()
+
+            if len(path_ids) > max_depth:
+                continue
+
+            if current_id == end_id:
+                # 将id路径转换为名字路径
+                path_names = []
+                for entity_id in path_ids:
+                    entity = self.entity_by_id.get(entity_id)
+                    if entity:
+                        path_names.append(entity['name'])
+
+                return {
+                    'path': path_names,
+                    'edges': edge_types
+                }
+
+            current_entity = self.entity_by_id.get(current_id)
+            if not current_entity:
+                continue
+
+            current_name = current_entity['name']
+
+            # 1. 获取直接调用的邻居
+            direct_callees = self.get_callees(current_name)
+            for callee_name in direct_callees:
+                callee_entity = self.find_function(callee_name)
+                if not callee_entity:
+                    continue
+
+                callee_id = callee_entity.get('id')
+                if callee_id and callee_id not in visited:
+                    visited.add(callee_id)
+                    queue.append((
+                        callee_id,
+                        path_ids + [callee_id],
+                        edge_types + ['direct']
+                    ))
+
+            # 2. 获取间接调用的邻居
+            indirect_callees = self._find_indirect_callees(current_name)
+            for callee_name, bridge_info in indirect_callees:
+                callee_entity = self.find_function(callee_name)
+                if not callee_entity:
+                    continue
+
+                callee_id = callee_entity.get('id')
+                if callee_id and callee_id not in visited:
+                    visited.add(callee_id)
+                    queue.append((
+                        callee_id,
+                        path_ids + [callee_id],
+                        edge_types + [{'type': 'indirect', 'bridge': bridge_info}]
+                    ))
+
+        return None
+
+    def find_reachable_from_start(self, start: str, max_depth: int = 10) -> Dict[str, List[str]]:
+        """
+        从起点出发，找到所有可达的函数及其路径
+
+        Args:
+            start: 起始函数名
+            max_depth: 最大搜索深度
+
+        Returns:
+            {函数名: 到达该函数的路径}
+        """
+        start_entity = self.find_function(start)
+        if not start_entity:
+            return {}
+
+        start_id = start_entity.get('id')
+        if not start_id:
+            return {}
+
+        from collections import deque
+
+        reachable = {start: [start]}
+        queue = deque([(start_id, [start_id])])
+        visited = {start_id}
+
+        while queue:
+            current_id, path_ids = queue.popleft()
+
+            if len(path_ids) > max_depth:
+                continue
+
+            current_entity = self.entity_by_id.get(current_id)
+            if not current_entity:
+                continue
+
+            current_name = current_entity['name']
+
+            # 获取直接调用
+            for callee_name in self.get_callees(current_name):
+                callee_entity = self.find_function(callee_name)
+                if not callee_entity:
+                    continue
+
+                callee_id = callee_entity.get('id')
+                if callee_id and callee_id not in visited:
+                    visited.add(callee_id)
+                    new_path_ids = path_ids + [callee_id]
+                    queue.append((callee_id, new_path_ids))
+
+                    # 转换为名字路径
+                    path_names = [self.entity_by_id[eid]['name'] for eid in new_path_ids if eid in self.entity_by_id]
+                    reachable[callee_name] = path_names
+
+        return reachable
+
+    def find_reachable_to_end(self, end: str, max_depth: int = 10) -> Dict[str, List[str]]:
+        """
+        反向搜索：找到所有能到达终点的函数及其路径
+
+        Args:
+            end: 目标函数名
+            max_depth: 最大搜索深度
+
+        Returns:
+            {函数名: 从该函数到终点的路径}
+        """
+        end_entity = self.find_function(end)
+        if not end_entity:
+            return {}
+
+        end_id = end_entity.get('id')
+        if not end_id:
+            return {}
+
+        from collections import deque
+
+        reachable = {end: [end]}
+        queue = deque([(end_id, [end_id])])
+        visited = {end_id}
+
+        while queue:
+            current_id, path_ids = queue.popleft()
+
+            if len(path_ids) > max_depth:
+                continue
+
+            current_entity = self.entity_by_id.get(current_id)
+            if not current_entity:
+                continue
+
+            current_name = current_entity['name']
+
+            # 获取调用者（反向）
+            for caller_name in self.get_callers(current_name):
+                caller_entity = self.find_function(caller_name)
+                if not caller_entity:
+                    continue
+
+                caller_id = caller_entity.get('id')
+                if caller_id and caller_id not in visited:
+                    visited.add(caller_id)
+                    new_path_ids = [caller_id] + path_ids
+                    queue.append((caller_id, new_path_ids))
+
+                    # 转换为名字路径
+                    path_names = [self.entity_by_id[eid]['name'] for eid in new_path_ids if eid in self.entity_by_id]
+                    reachable[caller_name] = path_names
+
+        return reachable
+
     def get_all_paths(self, start: str, end: str, max_depth: int = 10, limit: int = 5) -> List[List[str]]:
         """
         获取所有可能的调用路径（DFS搜索）

@@ -11,11 +11,25 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from coordinator.master_coordinator import MasterCoordinator
+from llm.openai_client import OpenAIClient
 from utils.logger import setup_logger, print_header
 import json
 
 # 配置日志
 setup_logger()
+
+# 初始化 LLM 客户端（可选）
+def create_llm_client():
+    """创建 LLM 客户端"""
+    # 从环境变量读取 API Key
+    api_key = os.getenv('OPENAI_API_KEY')
+    if api_key:
+        print("✓ 检测到 OPENAI_API_KEY，启用 LLM 功能")
+        return OpenAIClient(api_key=api_key, model="gpt-4")
+    else:
+        print("⚠ 未设置 OPENAI_API_KEY，LLM 功能将不可用")
+        print("  提示: export OPENAI_API_KEY='your-api-key'")
+        return None
 
 
 def run_mmc_case():
@@ -32,8 +46,11 @@ mmc0: error -1 whilst initialising MMC card
     # 指定数据目录
     data_dir = "/data/xuao/code_kg_search/linux_test/data"
 
+    # 创建 LLM 客户端（可选）
+    llm_client = create_llm_client()
+
     # 创建协调器
-    coordinator = MasterCoordinator(data_dir=data_dir)
+    coordinator = MasterCoordinator(data_dir=data_dir, llm_client=llm_client)
     
     try:
         # 方式1：自动推断起点和终点
@@ -80,19 +97,22 @@ mmc0: error -1 whilst initialising MMC card
 def run_custom_case(log_file: str):
     """
     运行自定义案例
-    
+
     Args:
         log_file: 日志文件路径
     """
     print_header(f"运行自定义案例: {log_file}")
-    
+
     # 读取日志
     with open(log_file, 'r', encoding='utf-8') as f:
         log_text = f.read()
-    
+
+    # 创建 LLM 客户端（可选）
+    llm_client = create_llm_client()
+
     # 创建协调器
     data_dir = "/data/xuao/code_kg_search/linux_test/data"
-    coordinator = MasterCoordinator(data_dir=data_dir)
+    coordinator = MasterCoordinator(data_dir=data_dir, llm_client=llm_client)
     
     try:
         result = coordinator.process(log_text)

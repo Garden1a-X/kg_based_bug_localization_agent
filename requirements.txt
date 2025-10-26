@@ -1,5 +1,6 @@
 # 核心依赖
-anthropic>=0.18.0         # Claude API客户端（可选，用于LLM兜底）
+openai>=1.0.0             # OpenAI API客户端（用于LLM推理）
+anthropic>=0.18.0         # Claude API客户端（备用）
 python-dotenv>=1.0.0      # 环境变量管理
 
 # 数据验证和配置
