@@ -49,7 +49,20 @@ class CallChainTracerAgent(BaseAgent):
 
         # === 第1层：扩展搜索（支持间接调用） ===
         self.log_info("第1层：尝试扩展搜索（直接+间接调用）...")
+
+        print(f"\n{'='*80}")
+        print(f"🚀 CallChainTracer: 调用 find_call_path_with_indirect")
+        print(f"   起点: {start_name}")
+        print(f"   终点: {end_name}")
+        print(f"   最大深度: {max_depth}")
+        print(f"{'='*80}")
+
         result = self.kg.find_call_path_with_indirect(start_name, end_name, max_depth, debug=True)
+
+        print(f"\n{'='*80}")
+        print(f"🔙 find_call_path_with_indirect 返回:")
+        print(f"   result = {result}")
+        print(f"{'='*80}\n")
 
         if result and result.get('path'):
             self.log_success(f"✓ 扩展搜索成功，路径长度: {len(result['path'])}")
