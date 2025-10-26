@@ -36,6 +36,11 @@ data/relations.json
 data/entity_*.json
 data/relation_*.json
 
+# Private documents (never commit to git)
+private_docs/
+*.private.*
+*_private.*
+
 # Testing
 .pytest_cache/
 .coverage
