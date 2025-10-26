@@ -15,12 +15,12 @@ TODO: 临时模块，等知识图谱修复 ASSIGNED_TO 关系后删除
 # 异步调用关系（工作队列）
 # 格式：{(caller_func, callee_func): bridge_info}
 MOCK_ASYNC_CALLS = {
-    # mmc_schedule_delayed_work 异步调度 mmc_rescan
-    ("mmc_schedule_delayed_work", "mmc_rescan"): {
+    # mmc_start_host 异步调度 mmc_rescan
+    ("mmc_start_host", "mmc_rescan"): {
         "bridge_type": "async",
         "bridge_entity": "work_struct.func",
         "init_func": "INIT_DELAYED_WORK",
-        "description": "host->detect 在 mmc_alloc_host 中挂载为 mmc_rescan"
+        "description": "host->detect 工作队列异步调用 mmc_rescan"
     },
     # 可以添加更多已知的异步调用关系
 }
@@ -28,14 +28,33 @@ MOCK_ASYNC_CALLS = {
 # 函数指针调用关系（ops 表）
 # 格式：{(caller_func, callee_func): bridge_info}
 MOCK_FUNCTION_POINTER_CALLS = {
-    # mmc_rescan 通过 ops 表调用 dw_mci_execute_tuning
-    ("mmc_rescan", "dw_mci_execute_tuning"): {
+    # dw_mci_probe → mmc_start_host（函数指针/ops调用）
+    ("dw_mci_probe", "mmc_start_host"): {
+        "bridge_type": "function_pointer",
+        "bridge_entity": "mmc_host_ops.start",
+        "struct_name": "mmc_host_ops",
+        "field_name": "start",
+        "description": "通过 mmc_host_ops 调用 mmc_start_host"
+    },
+
+    # mmc_execute_tuning → dw_mci_execute_tuning（函数指针/ops调用）
+    ("mmc_execute_tuning", "dw_mci_execute_tuning"): {
         "bridge_type": "function_pointer",
         "bridge_entity": "mmc_host_ops.execute_tuning",
         "struct_name": "dw_mci_ops",
         "field_name": "execute_tuning",
         "description": "host->ops->execute_tuning() 指向 dw_mci_execute_tuning"
     },
+
+    # dw_mci_execute_tuning → dw_mci_hi3660_execute_tuning（函数指针/平台特定ops）
+    ("dw_mci_execute_tuning", "dw_mci_hi3660_execute_tuning"): {
+        "bridge_type": "function_pointer",
+        "bridge_entity": "dw_mci_drv_data.execute_tuning",
+        "struct_name": "dw_mci_drv_data",
+        "field_name": "execute_tuning",
+        "description": "平台特定的 execute_tuning 实现"
+    },
+
     # 可以添加更多已知的函数指针关系
 }
 

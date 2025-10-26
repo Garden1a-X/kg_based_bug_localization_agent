@@ -38,11 +38,16 @@ print("\n" + "=" * 80)
 print("【测试1】第1层：扩展搜索（支持间接调用）")
 print("=" * 80)
 
-start_func = "mmc_add_host"
-end_func = "dw_mci_execute_tuning"
+# 使用正确的起点和终点（根据实际调用链）
+start_func = "dw_mci_pltfm_probe"  # 正确的入口点
+end_func = "dw_mci_execute_tuning"  # 或者 "dw_mci_hi3660_execute_tuning"
 
 print(f"\n起始函数: {start_func}")
 print(f"目标函数: {end_func}")
+print("\n预期路径包含以下断裂点（使用 mock 数据桥接）:")
+print("  1. dw_mci_probe → mmc_start_host [函数指针]")
+print("  2. mmc_start_host → mmc_rescan [异步调用]")
+print("  3. mmc_execute_tuning → dw_mci_execute_tuning [函数指针]")
 
 start_entity = kg.find_function(start_func)
 end_entity = kg.find_function(end_func)
@@ -120,7 +125,7 @@ if llm_client and llm_client.is_available():
     print("\n测试 LLM 分析函数关系...")
 
     # 选择两个有间接调用关系的函数
-    func_a = "mmc_schedule_delayed_work"
+    func_a = "mmc_start_host"
     func_b = "mmc_rescan"
 
     code_a = kg.get_function_code(func_a) or "代码未找到"
