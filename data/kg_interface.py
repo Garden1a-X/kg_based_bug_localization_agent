@@ -8,6 +8,14 @@ from typing import Dict, List, Optional, Any
 from loguru import logger
 from pathlib import Path
 
+# ============================================================
+# TODO: 等图谱修复后删除这个导入
+# ============================================================
+from data.mock_indirect_calls import (
+    get_mock_async_bridge,
+    get_mock_function_pointer_bridge
+)
+
 
 class KnowledgeGraphInterface:
     """知识图谱接口 - 基于JSON文件"""
@@ -491,59 +499,75 @@ class KnowledgeGraphInterface:
     def check_async_pattern(self, node_a: str, node_b: str) -> Optional[Dict]:
         """
         检查异步调用模式（work_struct）
-        
+
         Args:
             node_a: 起始函数
             node_b: 目标函数
-            
+
         Returns:
             桥接信息，如果不存在返回None
         """
-        if 'ASSIGNED_TO' not in self.relations:
-            return None
-        
-        # 查找 work_struct.func 指向 node_b 的关系
-        for rel in self.relations['ASSIGNED_TO']:
-            src = rel.get('source') or rel.get('from')
-            tgt = rel.get('target') or rel.get('to')
-            
-            # 检查是否是 work_struct 的 func 字段指向目标函数
-            if tgt == node_b and 'func' in str(src).lower():
-                return {
-                    'bridge_type': 'async',
-                    'bridge_entity': 'work_struct.func',
-                    'init_func': 'INIT_WORK/INIT_DELAYED_WORK'
-                }
-        
+        # 首先尝试从真实图谱中查找
+        if 'ASSIGNED_TO' in self.relations:
+            # 查找 work_struct.func 指向 node_b 的关系
+            for rel in self.relations['ASSIGNED_TO']:
+                src = rel.get('source') or rel.get('from')
+                tgt = rel.get('target') or rel.get('to')
+
+                # 检查是否是 work_struct 的 func 字段指向目标函数
+                if tgt == node_b and 'func' in str(src).lower():
+                    return {
+                        'bridge_type': 'async',
+                        'bridge_entity': 'work_struct.func',
+                        'init_func': 'INIT_WORK/INIT_DELAYED_WORK'
+                    }
+
+        # ============================================================
+        # TODO: 等图谱修复后删除这部分代码
+        # 作为临时方案，使用 mock 数据
+        # ============================================================
+        mock_bridge = get_mock_async_bridge(node_a, node_b)
+        if mock_bridge:
+            logger.debug(f"使用 mock 异步调用桥接: {node_a} -> {node_b}")
+            return mock_bridge
+
         return None
     
     def check_function_pointer_pattern(self, node_a: str, node_b: str) -> Optional[Dict]:
         """
         检查函数指针调用模式（ops表）
-        
+
         Args:
             node_a: 起始函数
             node_b: 目标函数
-            
+
         Returns:
             桥接信息，如果不存在返回None
         """
-        if 'ASSIGNED_TO' not in self.relations:
-            return None
-        
-        # 查找 ops 相关的赋值
-        for rel in self.relations['ASSIGNED_TO']:
-            src = rel.get('source') or rel.get('from')
-            tgt = rel.get('target') or rel.get('to')
-            
-            # 检查是否是 ops 表字段指向目标函数
-            if tgt == node_b and 'ops' in str(src).lower():
-                return {
-                    'bridge_type': 'function_pointer',
-                    'bridge_entity': src,
-                    'ops_var': src
-                }
-        
+        # 首先尝试从真实图谱中查找
+        if 'ASSIGNED_TO' in self.relations:
+            # 查找 ops 相关的赋值
+            for rel in self.relations['ASSIGNED_TO']:
+                src = rel.get('source') or rel.get('from')
+                tgt = rel.get('target') or rel.get('to')
+
+                # 检查是否是 ops 表字段指向目标函数
+                if tgt == node_b and 'ops' in str(src).lower():
+                    return {
+                        'bridge_type': 'function_pointer',
+                        'bridge_entity': src,
+                        'ops_var': src
+                    }
+
+        # ============================================================
+        # TODO: 等图谱修复后删除这部分代码
+        # 作为临时方案，使用 mock 数据
+        # ============================================================
+        mock_bridge = get_mock_function_pointer_bridge(node_a, node_b)
+        if mock_bridge:
+            logger.debug(f"使用 mock 函数指针桥接: {node_a} -> {node_b}")
+            return mock_bridge
+
         return None
     
     # ============ 上下文查询 ============
