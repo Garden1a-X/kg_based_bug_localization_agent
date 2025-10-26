@@ -25,8 +25,9 @@ class KnowledgeGraphInterface:
         self.data_dir = Path(data_dir)
 
         # 缓存数据
-        self.entities = {}
-        self.relations = {}
+        self.entities = {}  # {entity_type: {name: entity}}
+        self.relations = {}  # {rel_type: [relations]}
+        self.entity_by_id = {}  # {id: entity} - 用于通过id快速查找
 
         # 加载所有数据
         self._load_all_data()
@@ -60,18 +61,25 @@ class KnowledgeGraphInterface:
             # 字典格式：按类型分组
             for entity_type, entity_list in entities_data.items():
                 if isinstance(entity_list, list):
-                    self.entities[entity_type] = {
-                        item['name']: item for item in entity_list if isinstance(item, dict) and 'name' in item
-                    }
+                    self.entities[entity_type] = {}
+                    for item in entity_list:
+                        if isinstance(item, dict) and 'name' in item:
+                            self.entities[entity_type][item['name']] = item
+                            # 同时建立 id 映射
+                            if 'id' in item:
+                                self.entity_by_id[item['id']] = item
                     logger.info(f"  ✓ 加载 {entity_type}: {len(self.entities[entity_type])} 个")
         elif isinstance(entities_data, list):
-            # 列表格式：根据 type 字段分组
+            # 列表格式：根据 type 字段分组（你的格式）
             for entity in entities_data:
                 if isinstance(entity, dict) and 'name' in entity:
                     entity_type = entity.get('type', entity.get('entity_type', 'Unknown'))
                     if entity_type not in self.entities:
                         self.entities[entity_type] = {}
                     self.entities[entity_type][entity['name']] = entity
+                    # 同时建立 id 映射
+                    if 'id' in entity:
+                        self.entity_by_id[entity['id']] = entity
 
             for entity_type, entities in self.entities.items():
                 logger.info(f"  ✓ 加载 {entity_type}: {len(entities)} 个")
@@ -188,38 +196,48 @@ class KnowledgeGraphInterface:
     def find_function(self, func_name: str) -> Optional[Dict]:
         """
         查找函数实体
-        
+
         Args:
             func_name: 函数名
-            
+
         Returns:
             函数实体信息，如果不存在返回None
         """
-        if 'Function' not in self.entities:
+        if 'FUNCTION' not in self.entities:
             return None
-        
-        return self.entities['Function'].get(func_name)
+
+        entity = self.entities['FUNCTION'].get(func_name)
+        if entity and 'file' not in entity and 'source_file' in entity:
+            # 添加 file 字段作为 source_file 的别名，保持向后兼容
+            entity = entity.copy()
+            entity['file'] = entity['source_file']
+
+        return entity
     
     def find_functions_by_pattern(self, pattern: str) -> List[Dict]:
         """
         模糊查找函数
-        
+
         Args:
             pattern: 函数名模式
-            
+
         Returns:
             匹配的函数列表
         """
-        if 'Function' not in self.entities:
+        if 'FUNCTION' not in self.entities:
             return []
-        
+
         results = []
-        for name, func in self.entities['Function'].items():
+        for name, func in self.entities['FUNCTION'].items():
             if pattern.lower() in name.lower():
-                results.append(func)
+                # 添加 file 字段
+                func_copy = func.copy()
+                if 'file' not in func_copy and 'source_file' in func_copy:
+                    func_copy['file'] = func_copy['source_file']
+                results.append(func_copy)
                 if len(results) >= 10:  # 限制返回数量
                     break
-        
+
         return results
     
     def get_function_code(self, func_name: str) -> Optional[str]:
@@ -243,72 +261,106 @@ class KnowledgeGraphInterface:
     def has_direct_call(self, caller: str, callee: str) -> bool:
         """
         检查两个函数之间是否有直接CALLS关系
-        
+
         Args:
             caller: 调用者函数名
             callee: 被调用者函数名
-            
+
         Returns:
             是否存在直接调用关系
         """
         if 'CALLS' not in self.relations:
             return False
-        
+
+        # 先获取两个函数的实体（带id）
+        caller_entity = self.find_function(caller)
+        callee_entity = self.find_function(callee)
+
+        if not caller_entity or not callee_entity:
+            return False
+
+        caller_id = caller_entity.get('id')
+        callee_id = callee_entity.get('id')
+
+        if not caller_id or not callee_id:
+            return False
+
         for rel in self.relations['CALLS']:
-            src = rel.get('source') or rel.get('from') or rel.get('caller')
-            tgt = rel.get('target') or rel.get('to') or rel.get('callee')
-            
-            if src == caller and tgt == callee:
+            # 关系中使用 head/tail 字段，存储的是 id
+            head = rel.get('head')
+            tail = rel.get('tail')
+
+            if head == caller_id and tail == callee_id:
                 return True
-        
+
         return False
     
     def find_call_path(self, start: str, end: str, max_depth: int = 10) -> Optional[List[str]]:
         """
         查找两个函数之间的调用路径（BFS搜索）
-        
+
         Args:
             start: 起始函数名
             end: 目标函数名
             max_depth: 最大搜索深度
-            
+
         Returns:
             调用路径（函数名列表），如果不存在返回None
         """
         if 'CALLS' not in self.relations:
             return None
-        
-        # 构建邻接表
+
+        # 获取起点和终点的实体（带id）
+        start_entity = self.find_function(start)
+        end_entity = self.find_function(end)
+
+        if not start_entity or not end_entity:
+            return None
+
+        start_id = start_entity.get('id')
+        end_id = end_entity.get('id')
+
+        if not start_id or not end_id:
+            return None
+
+        # 构建邻接表（使用id）
         graph = {}
         for rel in self.relations['CALLS']:
-            src = rel.get('source') or rel.get('from') or rel.get('caller')
-            tgt = rel.get('target') or rel.get('to') or rel.get('callee')
-            
-            if src not in graph:
-                graph[src] = []
-            graph[src].append(tgt)
-        
-        # BFS搜索
+            head = rel.get('head')  # caller id
+            tail = rel.get('tail')  # callee id
+
+            if head and tail:
+                if head not in graph:
+                    graph[head] = []
+                graph[head].append(tail)
+
+        # BFS搜索（使用id）
         from collections import deque
-        
-        queue = deque([(start, [start])])
-        visited = {start}
-        
+
+        queue = deque([(start_id, [start_id])])
+        visited = {start_id}
+
         while queue:
-            current, path = queue.popleft()
-            
-            if len(path) > max_depth:
+            current_id, path_ids = queue.popleft()
+
+            if len(path_ids) > max_depth:
                 continue
-            
-            if current == end:
-                return path
-            
-            if current in graph:
-                for neighbor in graph[current]:
-                    if neighbor not in visited:
-                        visited.add(neighbor)
-                        queue.append((neighbor, path + [neighbor]))
-        
+
+            if current_id == end_id:
+                # 将id路径转换为名字路径
+                path_names = []
+                for entity_id in path_ids:
+                    entity = self.entity_by_id.get(entity_id)
+                    if entity:
+                        path_names.append(entity['name'])
+                return path_names
+
+            if current_id in graph:
+                for neighbor_id in graph[current_id]:
+                    if neighbor_id not in visited:
+                        visited.add(neighbor_id)
+                        queue.append((neighbor_id, path_ids + [neighbor_id]))
+
         return None
     
     def get_all_paths(self, start: str, end: str, max_depth: int = 10, limit: int = 5) -> List[List[str]]:
@@ -367,47 +419,71 @@ class KnowledgeGraphInterface:
     def get_callers(self, func_name: str) -> List[str]:
         """
         获取调用某函数的所有函数
-        
+
         Args:
             func_name: 函数名
-            
+
         Returns:
             调用者函数名列表
         """
         if 'CALLS' not in self.relations:
             return []
-        
+
+        # 获取目标函数的实体（带id）
+        func_entity = self.find_function(func_name)
+        if not func_entity:
+            return []
+
+        func_id = func_entity.get('id')
+        if not func_id:
+            return []
+
         callers = []
         for rel in self.relations['CALLS']:
-            src = rel.get('source') or rel.get('from') or rel.get('caller')
-            tgt = rel.get('target') or rel.get('to') or rel.get('callee')
-            
-            if tgt == func_name:
-                callers.append(src)
-        
+            head = rel.get('head')  # caller id
+            tail = rel.get('tail')  # callee id
+
+            if tail == func_id:
+                # 通过 id 查找 caller 的名字
+                caller_entity = self.entity_by_id.get(head)
+                if caller_entity and 'name' in caller_entity:
+                    callers.append(caller_entity['name'])
+
         return list(set(callers))
-    
+
     def get_callees(self, func_name: str) -> List[str]:
         """
         获取某函数调用的所有函数
-        
+
         Args:
             func_name: 函数名
-            
+
         Returns:
             被调用函数名列表
         """
         if 'CALLS' not in self.relations:
             return []
-        
+
+        # 获取函数的实体（带id）
+        func_entity = self.find_function(func_name)
+        if not func_entity:
+            return []
+
+        func_id = func_entity.get('id')
+        if not func_id:
+            return []
+
         callees = []
         for rel in self.relations['CALLS']:
-            src = rel.get('source') or rel.get('from') or rel.get('caller')
-            tgt = rel.get('target') or rel.get('to') or rel.get('callee')
-            
-            if src == func_name:
-                callees.append(tgt)
-        
+            head = rel.get('head')  # caller id
+            tail = rel.get('tail')  # callee id
+
+            if head == func_id:
+                # 通过 id 查找 callee 的名字
+                callee_entity = self.entity_by_id.get(tail)
+                if callee_entity and 'name' in callee_entity:
+                    callees.append(callee_entity['name'])
+
         return list(set(callees))
     
     # ============ 断点修复相关查询 ============
