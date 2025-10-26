@@ -844,14 +844,20 @@ class KnowledgeGraphInterface:
         if not func_id:
             return []
 
+        # 获取等价ID集合（包括声明和实现）
+        func_id = self.normalize_id(func_id)
+        equivalent_ids = self.get_equivalent_ids(func_id)
+
         callers = []
         for rel in self.relations['CALLS']:
             head = rel.get('head')  # caller id
             tail = rel.get('tail')  # callee id
 
-            if tail == func_id:
-                # 通过 id 查找 caller 的名字
-                caller_entity = self.entity_by_id.get(head)
+            # 检查 tail 是否是当前函数的等价ID之一
+            if tail in equivalent_ids:
+                # 标准化 head 并查找名字
+                head_normalized = self.normalize_id(head)
+                caller_entity = self.entity_by_id.get(head_normalized)
                 if caller_entity and 'name' in caller_entity:
                     callers.append(caller_entity['name'])
 
@@ -879,14 +885,20 @@ class KnowledgeGraphInterface:
         if not func_id:
             return []
 
+        # 获取等价ID集合（包括声明和实现）
+        func_id = self.normalize_id(func_id)
+        equivalent_ids = self.get_equivalent_ids(func_id)
+
         callees = []
         for rel in self.relations['CALLS']:
             head = rel.get('head')  # caller id
             tail = rel.get('tail')  # callee id
 
-            if head == func_id:
-                # 通过 id 查找 callee 的名字
-                callee_entity = self.entity_by_id.get(tail)
+            # 检查 head 是否是当前函数的等价ID之一
+            if head in equivalent_ids:
+                # 标准化 tail 并查找名字
+                tail_normalized = self.normalize_id(tail)
+                callee_entity = self.entity_by_id.get(tail_normalized)
                 if callee_entity and 'name' in callee_entity:
                     callees.append(callee_entity['name'])
 
