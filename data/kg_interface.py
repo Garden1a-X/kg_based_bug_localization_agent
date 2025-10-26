@@ -77,6 +77,9 @@ class KnowledgeGraphInterface:
                     self.entities[entity_type] = {}
                     for item in entity_list:
                         if isinstance(item, dict) and 'name' in item:
+                            # 标准化ID为字符串（确保类型一致性）
+                            if 'id' in item:
+                                item['id'] = str(item['id'])
                             self.entities[entity_type][item['name']] = item
                             # 同时建立 id 映射
                             if 'id' in item:
@@ -86,6 +89,9 @@ class KnowledgeGraphInterface:
             # 列表格式：根据 type 字段分组（你的格式）
             for entity in entities_data:
                 if isinstance(entity, dict) and 'name' in entity:
+                    # 标准化ID为字符串（确保类型一致性）
+                    if 'id' in entity:
+                        entity['id'] = str(entity['id'])
                     entity_type = entity.get('type', entity.get('entity_type', 'Unknown'))
                     if entity_type not in self.entities:
                         self.entities[entity_type] = {}
@@ -111,12 +117,23 @@ class KnowledgeGraphInterface:
             # 字典格式：按类型分组
             for rel_type, rel_list in relations_data.items():
                 if isinstance(rel_list, list):
+                    # 标准化关系中的ID为字符串
+                    for rel in rel_list:
+                        if 'head' in rel:
+                            rel['head'] = str(rel['head'])
+                        if 'tail' in rel:
+                            rel['tail'] = str(rel['tail'])
                     self.relations[rel_type] = rel_list
                     logger.info(f"  ✓ 加载 {rel_type}: {len(rel_list)} 个")
         elif isinstance(relations_data, list):
             # 列表格式：根据 type 字段分组
             for relation in relations_data:
                 if isinstance(relation, dict):
+                    # 标准化关系中的ID为字符串
+                    if 'head' in relation:
+                        relation['head'] = str(relation['head'])
+                    if 'tail' in relation:
+                        relation['tail'] = str(relation['tail'])
                     rel_type = relation.get('type', relation.get('relation_type', 'UNKNOWN'))
                     if rel_type not in self.relations:
                         self.relations[rel_type] = []
@@ -213,9 +230,17 @@ class KnowledgeGraphInterface:
                     # 如果是字典，转为列表
                     if isinstance(data, dict):
                         data = list(data.values())
+                    # 标准化ID为字符串
+                    for item in data:
+                        if 'id' in item:
+                            item['id'] = str(item['id'])
                     self.entities[entity_type] = {
                         item['name']: item for item in data if 'name' in item
                     }
+                    # 建立 id 映射
+                    for item in data:
+                        if 'id' in item:
+                            self.entity_by_id[item['id']] = item
                 logger.info(f"✓ 加载 {entity_type}: {len(self.entities[entity_type])} 个")
 
         # 加载关系
@@ -238,6 +263,12 @@ class KnowledgeGraphInterface:
                     data = json.load(f)
                     if isinstance(data, dict):
                         data = list(data.values())
+                    # 标准化关系中的ID为字符串
+                    for rel in data:
+                        if 'head' in rel:
+                            rel['head'] = str(rel['head'])
+                        if 'tail' in rel:
+                            rel['tail'] = str(rel['tail'])
                     self.relations[rel_type] = data
                 logger.info(f"✓ 加载 {rel_type}: {len(self.relations[rel_type])} 个")
     
