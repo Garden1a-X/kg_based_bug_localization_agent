@@ -1,9 +1,9 @@
 """
 主协调器
-协调所有Agent完成bug定位任务
+协调所有Agent完成Bug定位任务
 """
 from typing import Dict
-from data.kg_interface import create_kg_interface
+from data.kg_interface import KnowledgeGraphInterface
 from agents.log_parser_agent import LogParserAgent
 from agents.entity_locator_agent import EntityLocatorAgent
 from agents.chain_tracer_agent import CallChainTracerAgent
@@ -15,29 +15,26 @@ console = Console()
 
 
 class MasterCoordinator:
-    """主协调器 - MVP版本"""
-    
-    def __init__(self, neo4j_uri: str = None, neo4j_user: str = None, 
-                 neo4j_password: str = None, llm_client=None):
+    """主协调器"""
+
+    def __init__(self, data_dir: str = None, llm_client=None):
         """
         初始化协调器
-        
+
         Args:
-            neo4j_uri: Neo4j URI
-            neo4j_user: Neo4j用户名
-            neo4j_password: Neo4j密码
+            data_dir: 数据文件目录
             llm_client: LLM客户端（可选）
         """
         logger.info("初始化主协调器...")
-        
-        # 创建图谱接口
-        self.kg = create_kg_interface(neo4j_uri, neo4j_user, neo4j_password)
-        
+
+        # 创建知识图谱接口
+        self.kg = KnowledgeGraphInterface(data_dir)
+
         # 创建各个Agent
         self.log_parser = LogParserAgent()
         self.entity_locator = EntityLocatorAgent(self.kg)
         self.chain_tracer = CallChainTracerAgent(self.kg, llm_client)
-        
+
         logger.success("协调器初始化完成")
     
     def process(self, log_text: str) -> Dict:

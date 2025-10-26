@@ -10,13 +10,9 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from dotenv import load_dotenv
 from coordinator.master_coordinator import MasterCoordinator
 from utils.logger import setup_logger, print_header
 import json
-
-# 加载环境变量
-load_dotenv()
 
 # 配置日志
 setup_logger()
@@ -24,17 +20,20 @@ setup_logger()
 
 def run_mmc_case():
     """运行甲方MMC案例"""
-    
+
     # 甲方提供的错误日志
     mmc_error_log = """
 mmc0: tuning execution failed: -1
 mmc0: error -1 whilst initialising MMC card
     """
-    
+
     print_header("运行甲方MMC案例")
-    
+
+    # 指定数据目录
+    data_dir = "/data/xuao/code_kg_search/linux_test/data"
+
     # 创建协调器
-    coordinator = MasterCoordinator()
+    coordinator = MasterCoordinator(data_dir=data_dir)
     
     try:
         # 方式1：自动推断起点和终点
@@ -92,7 +91,8 @@ def run_custom_case(log_file: str):
         log_text = f.read()
     
     # 创建协调器
-    coordinator = MasterCoordinator()
+    data_dir = "/data/xuao/code_kg_search/linux_test/data"
+    coordinator = MasterCoordinator(data_dir=data_dir)
     
     try:
         result = coordinator.process(log_text)

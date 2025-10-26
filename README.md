@@ -11,6 +11,7 @@
   - 第1层: 图谱直接查询 (90%情况)
   - 第2层: 专家规则 (9%情况) - 异步调用、函数指针等
   - 第3层: LLM兜底 (1%情况) - 处理未知模式
+- **灵活数据源**: 支持JSON格式知识图谱，无需数据库
 
 ## 📁 项目结构
 
@@ -35,8 +36,6 @@ bug_localization_agent/
 ### 1. 安装依赖
 
 ```bash
-cd /data/xuao/code_kg_search/bug_localization_agent
-
 # 创建虚拟环境（推荐）
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
@@ -47,38 +46,35 @@ venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 ```
 
-### 2. 配置环境
+### 2. 准备数据
 
-复制 `.env.example` 为 `.env` 并填入配置:
+将知识图谱数据放在指定目录，支持两种格式：
+
+**格式1：合并格式（推荐）**
+```
+/data/xuao/code_kg_search/linux_test/data/
+├── temp_en.json      # 实体数据
+└── relations.json    # 关系数据
+```
+
+**格式2：分散格式**
+```
+data/
+├── entity_function.json
+├── entity_struct.json
+├── relation_calls.json
+└── ...
+```
+
+### 3. 配置环境（可选）
+
+设置数据目录环境变量：
 
 ```bash
-cp .env.example .env
-vim .env  # 或用其他编辑器
+export KG_DATA_DIR=/path/to/your/data
 ```
 
-配置内容:
-```bash
-# Neo4j配置（必须）
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_password
-
-# Anthropic API（可选，用于LLM兜底）
-ANTHROPIC_API_KEY=your_api_key
-```
-
-### 3. 测试连接
-
-```bash
-python tests/test_connections.py
-```
-
-预期输出:
-```
-✓ 项目结构存在
-✓ Neo4j连接成功
-✓ Anthropic API连接成功（或⚠ 未配置）
-```
+或者在代码中直接指定路径（参见示例代码）。
 
 ### 4. 运行示例
 
@@ -90,6 +86,15 @@ python examples/run_mmc_case.py
 python examples/run_mmc_case.py path/to/your/log.txt
 ```
 
+预期输出：
+```
+✓ 已加载知识图谱
+✓ 解析错误日志
+✓ 在图谱中定位实体
+✓ 追踪调用链
+✓ 生成分析报告
+```
+
 ## 📖 使用方法
 
 ### 方式1: 使用协调器（推荐）
@@ -97,8 +102,8 @@ python examples/run_mmc_case.py path/to/your/log.txt
 ```python
 from coordinator.master_coordinator import MasterCoordinator
 
-# 创建协调器
-coordinator = MasterCoordinator()
+# 创建协调器（可选指定数据目录）
+coordinator = MasterCoordinator(data_dir="/path/to/your/data")
 
 # 处理日志
 error_log = """
@@ -129,13 +134,15 @@ result = coordinator.process_with_specific_functions(
 ### 方式3: 单独使用Agent
 
 ```python
-from data.kg_interface import create_kg_interface
+from data.kg_interface import create_kg_interface, KnowledgeGraphInterface
 from agents.log_parser_agent import LogParserAgent
 from agents.entity_locator_agent import EntityLocatorAgent
 from agents.chain_tracer_agent import CallChainTracerAgent
 
 # 创建图谱接口
-kg = create_kg_interface()
+kg = KnowledgeGraphInterface(data_dir="/path/to/your/data")
+# 或使用便捷函数
+# kg = create_kg_interface("/path/to/your/data")
 
 # 使用各个Agent
 log_parser = LogParserAgent()
@@ -264,16 +271,39 @@ pytest --cov=. tests/
 
 ### 必需配置
 
-- `NEO4J_URI`: Neo4j数据库地址
-- `NEO4J_USER`: Neo4j用户名
-- `NEO4J_PASSWORD`: Neo4j密码
+- `KG_DATA_DIR`: 知识图谱数据目录（默认：`/data/xuao/code_kg_search/linux_test/data`）
 
 ### 可选配置
 
-- `ANTHROPIC_API_KEY`: Claude API密钥（用于LLM兜底）
+- `ANTHROPIC_API_KEY`: Claude API密钥（用于LLM兜底，可选）
 - `LLM_CONFIDENCE_THRESHOLD`: LLM置信度阈值（默认0.6）
 - `MAX_CHAIN_DEPTH`: 最大搜索深度（默认15）
 - `LOG_LEVEL`: 日志级别（默认INFO）
+
+### 数据格式说明
+
+**实体文件（temp_en.json）格式：**
+```json
+{
+  "Function": [
+    {"name": "dw_mci_probe", "file": "drivers/mmc/host/dw_mmc.c", ...},
+    ...
+  ],
+  "Struct": [...],
+  ...
+}
+```
+
+**关系文件（relations.json）格式：**
+```json
+{
+  "CALLS": [
+    {"source": "func_a", "target": "func_b"},
+    ...
+  ],
+  ...
+}
+```
 
 ## 🤝 贡献
 

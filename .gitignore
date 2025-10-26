@@ -30,6 +30,12 @@ logs/
 output/
 *.out
 
+# Data files (large JSON files)
+data/temp_en.json
+data/relations.json
+data/entity_*.json
+data/relation_*.json
+
 # Testing
 .pytest_cache/
 .coverage

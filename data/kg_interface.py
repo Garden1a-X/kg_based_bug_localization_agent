@@ -1,31 +1,155 @@
 """
 知识图谱接口模块
-提供与Neo4j图数据库交互的所有方法
+从JSON文件读取知识图谱数据
 """
-from neo4j import GraphDatabase
+import json
+import os
 from typing import Dict, List, Optional, Any
 from loguru import logger
+from pathlib import Path
 
 
 class KnowledgeGraphInterface:
-    """知识图谱查询接口"""
-    
-    def __init__(self, uri: str, user: str, password: str):
+    """知识图谱接口 - 基于JSON文件"""
+
+    def __init__(self, data_dir: str = None):
         """
-        初始化Neo4j连接
-        
+        初始化知识图谱接口
+
         Args:
-            uri: Neo4j连接URI
-            user: 用户名
-            password: 密码
+            data_dir: 数据文件所在目录
         """
-        self.driver = GraphDatabase.driver(uri, auth=(user, password))
-        logger.info(f"已连接到Neo4j: {uri}")
+        if data_dir is None:
+            data_dir = os.getenv('KG_DATA_DIR', '/data/xuao/code_kg_search/linux_test/data')
+
+        self.data_dir = Path(data_dir)
+
+        # 缓存数据
+        self.entities = {}
+        self.relations = {}
+
+        # 加载所有数据
+        self._load_all_data()
+
+        logger.info(f"已加载知识图谱: {data_dir}")
+    
+    def _load_all_data(self):
+        """加载所有JSON文件"""
+        logger.info("正在加载数据...")
+
+        # 检查是否使用合并格式（temp_en.json + relations.json）
+        entity_file = self.data_dir / 'temp_en.json'
+        relation_file = self.data_dir / 'relations.json'
+
+        if entity_file.exists() and relation_file.exists():
+            logger.info("检测到合并格式数据文件")
+            self._load_merged_format(entity_file, relation_file)
+        else:
+            logger.info("使用分散格式数据文件")
+            self._load_separated_format()
+
+    def _load_merged_format(self, entity_file: Path, relation_file: Path):
+        """加载合并格式的数据（temp_en.json + relations.json）"""
+        # 加载实体
+        logger.info(f"加载实体文件: {entity_file.name}")
+        with open(entity_file, 'r', encoding='utf-8') as f:
+            entities_data = json.load(f)
+
+        # 解析实体数据结构
+        if isinstance(entities_data, dict):
+            # 字典格式：按类型分组
+            for entity_type, entity_list in entities_data.items():
+                if isinstance(entity_list, list):
+                    self.entities[entity_type] = {
+                        item['name']: item for item in entity_list if isinstance(item, dict) and 'name' in item
+                    }
+                    logger.info(f"  ✓ 加载 {entity_type}: {len(self.entities[entity_type])} 个")
+        elif isinstance(entities_data, list):
+            # 列表格式：根据 type 字段分组
+            for entity in entities_data:
+                if isinstance(entity, dict) and 'name' in entity:
+                    entity_type = entity.get('type', entity.get('entity_type', 'Unknown'))
+                    if entity_type not in self.entities:
+                        self.entities[entity_type] = {}
+                    self.entities[entity_type][entity['name']] = entity
+
+            for entity_type, entities in self.entities.items():
+                logger.info(f"  ✓ 加载 {entity_type}: {len(entities)} 个")
+
+        # 加载关系
+        logger.info(f"加载关系文件: {relation_file.name}")
+        with open(relation_file, 'r', encoding='utf-8') as f:
+            relations_data = json.load(f)
+
+        # 解析关系数据结构
+        if isinstance(relations_data, dict):
+            # 字典格式：按类型分组
+            for rel_type, rel_list in relations_data.items():
+                if isinstance(rel_list, list):
+                    self.relations[rel_type] = rel_list
+                    logger.info(f"  ✓ 加载 {rel_type}: {len(rel_list)} 个")
+        elif isinstance(relations_data, list):
+            # 列表格式：根据 type 字段分组
+            for relation in relations_data:
+                if isinstance(relation, dict):
+                    rel_type = relation.get('type', relation.get('relation_type', 'UNKNOWN'))
+                    if rel_type not in self.relations:
+                        self.relations[rel_type] = []
+                    self.relations[rel_type].append(relation)
+
+            for rel_type, relations in self.relations.items():
+                logger.info(f"  ✓ 加载 {rel_type}: {len(relations)} 个")
+
+    def _load_separated_format(self):
+        """加载分散格式的数据（多个独立文件）"""
+        # 加载实体
+        entity_files = {
+            'Function': 'entity_function.json',
+            'Struct': 'entity_struct.json',
+            'Variable': 'entity_variable.json',
+            'Field': 'entity_field.json',
+            'File': 'entity_file.json',
+        }
+
+        for entity_type, filename in entity_files.items():
+            filepath = self.data_dir / filename
+            if filepath.exists():
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    # 如果是字典，转为列表
+                    if isinstance(data, dict):
+                        data = list(data.values())
+                    self.entities[entity_type] = {
+                        item['name']: item for item in data if 'name' in item
+                    }
+                logger.info(f"✓ 加载 {entity_type}: {len(self.entities[entity_type])} 个")
+
+        # 加载关系
+        relation_files = {
+            'CALLS': 'relation_calls.json',
+            'CONTAINS': 'relation_contains.json',
+            'TYPE_OF': 'relation_typeof.json',
+            'ASSIGNED_TO': 'relation_assignedto.json',
+            'HAS_MEMBERS': 'relation_has_members.json',
+            'RETURNS': 'relation_returns.json',
+            'HAS_PARAMETERS': 'relation_has_parameters.json',
+            'HAS_VARIABLES': 'relation_has_variables.json',
+            'INCLUDES': 'relation_includes.json',
+        }
+
+        for rel_type, filename in relation_files.items():
+            filepath = self.data_dir / filename
+            if filepath.exists():
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        data = list(data.values())
+                    self.relations[rel_type] = data
+                logger.info(f"✓ 加载 {rel_type}: {len(self.relations[rel_type])} 个")
     
     def close(self):
         """关闭连接"""
-        self.driver.close()
-        logger.info("已关闭Neo4j连接")
+        logger.info("知识图谱接口关闭")
     
     def __enter__(self):
         return self
@@ -37,18 +161,12 @@ class KnowledgeGraphInterface:
     
     def query(self, cypher: str, **params) -> List[Dict]:
         """
-        执行Cypher查询
-        
-        Args:
-            cypher: Cypher查询语句
-            **params: 查询参数
-            
-        Returns:
-            查询结果列表
+        模拟Cypher查询（简化版本）
+        注意：这是简化实现，不支持复杂的Cypher语法
         """
-        with self.driver.session() as session:
-            result = session.run(cypher, **params)
-            return [dict(record) for record in result]
+        # JSON版本不需要Cypher，直接返回空
+        logger.warning("JSON模式不支持直接Cypher查询，请使用专用方法")
+        return []
     
     def entity_exists(self, entity_type: str, name: str) -> bool:
         """
@@ -61,9 +179,9 @@ class KnowledgeGraphInterface:
         Returns:
             是否存在
         """
-        cypher = f"MATCH (e:{entity_type} {{name: $name}}) RETURN count(e) > 0 as exists"
-        result = self.query(cypher, name=name)
-        return result[0]['exists'] if result else False
+        if entity_type not in self.entities:
+            return False
+        return name in self.entities[entity_type]
     
     # ============ 函数相关查询 ============
     
@@ -77,33 +195,32 @@ class KnowledgeGraphInterface:
         Returns:
             函数实体信息，如果不存在返回None
         """
-        cypher = """
-        MATCH (f:Function {name: $name})
-        RETURN f.name as name, 
-               f.file as file,
-               f.start_line as start_line,
-               f.end_line as end_line
-        """
-        results = self.query(cypher, name=func_name)
-        return results[0] if results else None
+        if 'Function' not in self.entities:
+            return None
+        
+        return self.entities['Function'].get(func_name)
     
     def find_functions_by_pattern(self, pattern: str) -> List[Dict]:
         """
-        模糊查找函数（用于处理宏展开等情况）
+        模糊查找函数
         
         Args:
-            pattern: 函数名模式（支持正则）
+            pattern: 函数名模式
             
         Returns:
             匹配的函数列表
         """
-        cypher = """
-        MATCH (f:Function)
-        WHERE f.name =~ $pattern
-        RETURN f.name as name, f.file as file
-        LIMIT 10
-        """
-        return self.query(cypher, pattern=f".*{pattern}.*")
+        if 'Function' not in self.entities:
+            return []
+        
+        results = []
+        for name, func in self.entities['Function'].items():
+            if pattern.lower() in name.lower():
+                results.append(func)
+                if len(results) >= 10:  # 限制返回数量
+                    break
+        
+        return results
     
     def get_function_code(self, func_name: str) -> Optional[str]:
         """
@@ -115,18 +232,11 @@ class KnowledgeGraphInterface:
         Returns:
             函数代码字符串
         """
-        func_info = self.find_function(func_name)
-        if not func_info:
+        func = self.find_function(func_name)
+        if not func:
             return None
         
-        # 从文件中读取代码（如果图谱中存储了代码路径）
-        # 这里简化处理，实际可能需要读取源文件
-        cypher = """
-        MATCH (f:Function {name: $name})
-        RETURN f.code as code
-        """
-        results = self.query(cypher, name=func_name)
-        return results[0]['code'] if results and 'code' in results[0] else None
+        return func.get('code') or func.get('body')
     
     # ============ 调用关系查询 ============
     
@@ -141,16 +251,21 @@ class KnowledgeGraphInterface:
         Returns:
             是否存在直接调用关系
         """
-        cypher = """
-        MATCH (a:Function {name: $caller})-[:CALLS]->(b:Function {name: $callee})
-        RETURN count(*) > 0 as has_call
-        """
-        results = self.query(cypher, caller=caller, callee=callee)
-        return results[0]['has_call'] if results else False
+        if 'CALLS' not in self.relations:
+            return False
+        
+        for rel in self.relations['CALLS']:
+            src = rel.get('source') or rel.get('from') or rel.get('caller')
+            tgt = rel.get('target') or rel.get('to') or rel.get('callee')
+            
+            if src == caller and tgt == callee:
+                return True
+        
+        return False
     
     def find_call_path(self, start: str, end: str, max_depth: int = 10) -> Optional[List[str]]:
         """
-        查找两个函数之间的调用路径（只考虑CALLS关系）
+        查找两个函数之间的调用路径（BFS搜索）
         
         Args:
             start: 起始函数名
@@ -160,20 +275,45 @@ class KnowledgeGraphInterface:
         Returns:
             调用路径（函数名列表），如果不存在返回None
         """
-        cypher = f"""
-        MATCH path = (start:Function {{name: $start}})
-                     -[:CALLS*1..{max_depth}]->
-                     (end:Function {{name: $end}})
-        RETURN [node in nodes(path) | node.name] as path
-        ORDER BY length(path)
-        LIMIT 1
-        """
-        results = self.query(cypher, start=start, end=end)
-        return results[0]['path'] if results else None
+        if 'CALLS' not in self.relations:
+            return None
+        
+        # 构建邻接表
+        graph = {}
+        for rel in self.relations['CALLS']:
+            src = rel.get('source') or rel.get('from') or rel.get('caller')
+            tgt = rel.get('target') or rel.get('to') or rel.get('callee')
+            
+            if src not in graph:
+                graph[src] = []
+            graph[src].append(tgt)
+        
+        # BFS搜索
+        from collections import deque
+        
+        queue = deque([(start, [start])])
+        visited = {start}
+        
+        while queue:
+            current, path = queue.popleft()
+            
+            if len(path) > max_depth:
+                continue
+            
+            if current == end:
+                return path
+            
+            if current in graph:
+                for neighbor in graph[current]:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append((neighbor, path + [neighbor]))
+        
+        return None
     
     def get_all_paths(self, start: str, end: str, max_depth: int = 10, limit: int = 5) -> List[List[str]]:
         """
-        获取所有可能的调用路径
+        获取所有可能的调用路径（DFS搜索）
         
         Args:
             start: 起始函数
@@ -184,16 +324,45 @@ class KnowledgeGraphInterface:
         Returns:
             路径列表
         """
-        cypher = f"""
-        MATCH path = (start:Function {{name: $start}})
-                     -[:CALLS*1..{max_depth}]->
-                     (end:Function {{name: $end}})
-        RETURN [node in nodes(path) | node.name] as path
-        ORDER BY length(path)
-        LIMIT {limit}
-        """
-        results = self.query(cypher, start=start, end=end)
-        return [r['path'] for r in results]
+        if 'CALLS' not in self.relations:
+            return []
+        
+        # 构建邻接表
+        graph = {}
+        for rel in self.relations['CALLS']:
+            src = rel.get('source') or rel.get('from') or rel.get('caller')
+            tgt = rel.get('target') or rel.get('to') or rel.get('callee')
+            
+            if src not in graph:
+                graph[src] = []
+            graph[src].append(tgt)
+        
+        # DFS查找所有路径
+        all_paths = []
+        
+        def dfs(current, path, visited):
+            if len(all_paths) >= limit:
+                return
+            
+            if len(path) > max_depth:
+                return
+            
+            if current == end:
+                all_paths.append(path[:])
+                return
+            
+            if current in graph:
+                for neighbor in graph[current]:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        path.append(neighbor)
+                        dfs(neighbor, path, visited)
+                        path.pop()
+                        visited.remove(neighbor)
+        
+        dfs(start, [start], {start})
+        
+        return all_paths
     
     def get_callers(self, func_name: str) -> List[str]:
         """
@@ -205,12 +374,18 @@ class KnowledgeGraphInterface:
         Returns:
             调用者函数名列表
         """
-        cypher = """
-        MATCH (caller:Function)-[:CALLS]->(f:Function {name: $name})
-        RETURN caller.name as name
-        """
-        results = self.query(cypher, name=func_name)
-        return [r['name'] for r in results]
+        if 'CALLS' not in self.relations:
+            return []
+        
+        callers = []
+        for rel in self.relations['CALLS']:
+            src = rel.get('source') or rel.get('from') or rel.get('caller')
+            tgt = rel.get('target') or rel.get('to') or rel.get('callee')
+            
+            if tgt == func_name:
+                callers.append(src)
+        
+        return list(set(callers))
     
     def get_callees(self, func_name: str) -> List[str]:
         """
@@ -222,12 +397,18 @@ class KnowledgeGraphInterface:
         Returns:
             被调用函数名列表
         """
-        cypher = """
-        MATCH (f:Function {name: $name})-[:CALLS]->(callee:Function)
-        RETURN callee.name as name
-        """
-        results = self.query(cypher, name=func_name)
-        return [r['name'] for r in results]
+        if 'CALLS' not in self.relations:
+            return []
+        
+        callees = []
+        for rel in self.relations['CALLS']:
+            src = rel.get('source') or rel.get('from') or rel.get('caller')
+            tgt = rel.get('target') or rel.get('to') or rel.get('callee')
+            
+            if src == func_name:
+                callees.append(tgt)
+        
+        return list(set(callees))
     
     # ============ 断点修复相关查询 ============
     
@@ -242,19 +423,23 @@ class KnowledgeGraphInterface:
         Returns:
             桥接信息，如果不存在返回None
         """
-        # 查找 node_a 是否调用了 INIT_WORK/INIT_DELAYED_WORK
-        cypher = """
-        MATCH (a:Function {name: $node_a})-[:CALLS]->(init:Function)
-        WHERE init.name IN ['INIT_WORK', 'INIT_DELAYED_WORK', 
-                           'INIT_DEFERRABLE_WORK', '__INIT_WORK']
-        MATCH (ws:Struct {name: 'work_struct'})-[:HAS_MEMBERS]->(func:Field {name: 'func'})
-        MATCH (func)-[:ASSIGNED_TO]->(b:Function {name: $node_b})
-        RETURN 'async' as bridge_type, 
-               init.name as init_func,
-               'work_struct.func' as bridge_entity
-        """
-        results = self.query(cypher, node_a=node_a, node_b=node_b)
-        return results[0] if results else None
+        if 'ASSIGNED_TO' not in self.relations:
+            return None
+        
+        # 查找 work_struct.func 指向 node_b 的关系
+        for rel in self.relations['ASSIGNED_TO']:
+            src = rel.get('source') or rel.get('from')
+            tgt = rel.get('target') or rel.get('to')
+            
+            # 检查是否是 work_struct 的 func 字段指向目标函数
+            if tgt == node_b and 'func' in str(src).lower():
+                return {
+                    'bridge_type': 'async',
+                    'bridge_entity': 'work_struct.func',
+                    'init_func': 'INIT_WORK/INIT_DELAYED_WORK'
+                }
+        
+        return None
     
     def check_function_pointer_pattern(self, node_a: str, node_b: str) -> Optional[Dict]:
         """
@@ -267,20 +452,23 @@ class KnowledgeGraphInterface:
         Returns:
             桥接信息，如果不存在返回None
         """
-        # 查找 node_a 中访问的 ops 相关变量
-        cypher = """
-        MATCH (a:Function {name: $node_a})-[:CONTAINS]->(var:Variable)
-        WHERE var.name ENDS WITH 'ops' OR var.name CONTAINS '_ops'
-        MATCH (var)-[:TYPE_OF]->(opsType:Struct)
-        MATCH (opsType)-[:HAS_MEMBERS]->(field:Field)
-        MATCH (field)-[:ASSIGNED_TO]->(b:Function {name: $node_b})
-        RETURN 'function_pointer' as bridge_type,
-               var.name as ops_var,
-               field.name as field_name,
-               opsType.name as struct_name
-        """
-        results = self.query(cypher, node_a=node_a, node_b=node_b)
-        return results[0] if results else None
+        if 'ASSIGNED_TO' not in self.relations:
+            return None
+        
+        # 查找 ops 相关的赋值
+        for rel in self.relations['ASSIGNED_TO']:
+            src = rel.get('source') or rel.get('from')
+            tgt = rel.get('target') or rel.get('to')
+            
+            # 检查是否是 ops 表字段指向目标函数
+            if tgt == node_b and 'ops' in str(src).lower():
+                return {
+                    'bridge_type': 'function_pointer',
+                    'bridge_entity': src,
+                    'ops_var': src
+                }
+        
+        return None
     
     # ============ 上下文查询 ============
     
@@ -309,73 +497,70 @@ class KnowledgeGraphInterface:
     
     def get_function_variables(self, func_name: str) -> List[Dict]:
         """获取函数中使用的变量"""
-        cypher = """
-        MATCH (f:Function {name: $name})-[:CONTAINS]->(v:Variable)
-        RETURN v.name as name, v.type as type
-        """
-        return self.query(cypher, name=func_name)
+        if 'CONTAINS' not in self.relations:
+            return []
+        
+        variables = []
+        for rel in self.relations['CONTAINS']:
+            src = rel.get('source') or rel.get('from')
+            tgt = rel.get('target') or rel.get('to')
+            
+            if src == func_name and 'Variable' in self.entities:
+                var_info = self.entities['Variable'].get(tgt)
+                if var_info:
+                    variables.append(var_info)
+        
+        return variables
     
     def get_related_structs(self, func_name: str) -> List[str]:
         """获取函数相关的结构体"""
-        cypher = """
-        MATCH (f:Function {name: $name})-[:CONTAINS]->(v:Variable)
-        MATCH (v)-[:TYPE_OF]->(s:Struct)
-        RETURN DISTINCT s.name as name
-        """
-        results = self.query(cypher, name=func_name)
-        return [r['name'] for r in results]
+        variables = self.get_function_variables(func_name)
+        
+        if 'TYPE_OF' not in self.relations:
+            return []
+        
+        struct_names = set()
+        for var in variables:
+            var_name = var.get('name')
+            for rel in self.relations['TYPE_OF']:
+                src = rel.get('source') or rel.get('from')
+                tgt = rel.get('target') or rel.get('to')
+                
+                if src == var_name:
+                    struct_names.add(tgt)
+        
+        return list(struct_names)
     
     # ============ 统计信息 ============
     
     def get_call_frequency(self, func_name: str) -> int:
         """获取函数被调用的次数"""
-        cypher = """
-        MATCH (:Function)-[:CALLS]->(f:Function {name: $name})
-        RETURN count(*) as frequency
-        """
-        results = self.query(cypher, name=func_name)
-        return results[0]['frequency'] if results else 0
+        return len(self.get_callers(func_name))
     
     def get_database_stats(self) -> Dict[str, int]:
         """获取图谱统计信息"""
         stats = {}
         
-        # 统计各类实体数量
-        for entity_type in ['Function', 'Struct', 'Variable', 'Field', 'File']:
-            cypher = f"MATCH (e:{entity_type}) RETURN count(e) as count"
-            result = self.query(cypher)
-            stats[entity_type] = result[0]['count'] if result else 0
+        # 统计实体
+        for entity_type, entities in self.entities.items():
+            stats[entity_type] = len(entities)
         
-        # 统计各类关系数量
-        for rel_type in ['CALLS', 'CONTAINS', 'TYPE_OF', 'ASSIGNED_TO', 'HAS_MEMBERS']:
-            cypher = f"MATCH ()-[r:{rel_type}]->() RETURN count(r) as count"
-            result = self.query(cypher)
-            stats[rel_type] = result[0]['count'] if result else 0
+        # 统计关系
+        for rel_type, relations in self.relations.items():
+            stats[rel_type] = len(relations)
         
         return stats
 
 
-# 便捷函数：创建KG接口
-def create_kg_interface(uri: str = None, user: str = None, password: str = None) -> KnowledgeGraphInterface:
+# 便捷函数：创建知识图谱接口
+def create_kg_interface(data_dir: str = None) -> KnowledgeGraphInterface:
     """
     创建知识图谱接口实例
-    
+
     Args:
-        uri: Neo4j URI，如果为None则从配置读取
-        user: 用户名，如果为None则从配置读取
-        password: 密码，如果为None则从配置读取
-        
+        data_dir: 数据文件目录，如果为None则从环境变量读取
+
     Returns:
         KnowledgeGraphInterface实例
     """
-    # 如果没有提供参数，从配置文件读取
-    if uri is None or user is None or password is None:
-        try:
-            from config.settings import settings
-            uri = uri or settings.neo4j_uri
-            user = user or settings.neo4j_user
-            password = password or settings.neo4j_password
-        except ImportError:
-            raise ValueError("必须提供Neo4j连接参数或配置settings模块")
-    
-    return KnowledgeGraphInterface(uri, user, password)
+    return KnowledgeGraphInterface(data_dir)
