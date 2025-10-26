@@ -230,10 +230,112 @@ for from_func, to_func in check_pairs:
             print(f"   ⚠️  从 {from_func} (ID:{from_id}) 没有任何出边！")
 
 print("\n" + "=" * 80)
+print("🔎 检查是否存在同名函数的多个实体")
+print("=" * 80)
+
+# 检查关键函数是否有多个实体
+key_func_names_to_check = [
+    "dw_mci_pltfm_register",
+    "dw_mci_pltfm_probe",
+    "dw_mci_probe",
+]
+
+for func_name in key_func_names_to_check:
+    print(f"\n函数: {func_name}")
+    matches = []
+    for entity in entities:
+        if entity.get('name') == func_name and entity.get('type') == 'FUNCTION':
+            matches.append({
+                'id': entity.get('id'),
+                'is_decl': entity.get('is_declaration', False),
+                'file': entity.get('file', 'N/A'),
+                'start_line': entity.get('start_line', 'N/A'),
+            })
+
+    print(f"  找到 {len(matches)} 个实体:")
+    for i, match in enumerate(matches, 1):
+        print(f"    {i}. ID={match['id']}, 声明={match['is_decl']}, 文件={match['file']}, 行={match['start_line']}")
+
+    # 如果有多个，检查哪个被 CALLS 关系使用
+    if len(matches) > 1:
+        print(f"\n  ⚠️  警告：存在 {len(matches)} 个同名实体！")
+        print(f"  问题：self.entities['FUNCTION']['{func_name}'] 字典只能保留一个")
+        print(f"  结果：find_function() 只会返回最后加载的那个，其他的会丢失！")
+
+        print(f"\n  检查哪个ID被 CALLS 关系使用:")
+        for match in matches:
+            # 作为 tail（被调用）
+            as_tail = sum(1 for rel in relations if rel.get('type') == 'CALLS' and rel.get('tail') == match['id'])
+            # 作为 head（调用者）
+            as_head = sum(1 for rel in relations if rel.get('type') == 'CALLS' and rel.get('head') == match['id'])
+            usage = "✓ 活跃" if (as_head > 0 or as_tail > 0) else "✗ 未使用"
+            print(f"    ID {match['id']}: 作为调用者 {as_head} 次, 作为被调用者 {as_tail} 次 [{usage}]")
+
+print("\n" + "=" * 80)
+print("🧪 模拟 kg_interface.py 的加载逻辑")
+print("=" * 80)
+
+print("\n模拟：按照 kg_interface 的方式加载实体到字典...")
+simulated_entities = {}
+for entity in entities:
+    if entity.get('type') == 'FUNCTION':
+        func_name = entity.get('name')
+        if func_name in key_func_names_to_check:
+            # 模拟加载逻辑（后加载的会覆盖先加载的）
+            old_id = simulated_entities.get(func_name, {}).get('id')
+            new_id = entity.get('id')
+            if old_id and old_id != new_id:
+                print(f"\n⚠️  {func_name}: ID {old_id} 被 ID {new_id} 覆盖！")
+            simulated_entities[func_name] = entity
+
+print("\n最终 find_function() 会返回的ID:")
+for func_name in key_func_names_to_check:
+    if func_name in simulated_entities:
+        final_id = simulated_entities[func_name]['id']
+        print(f"  {func_name}: ID={final_id}")
+
+        # 检查这个ID是否有 CALLS 关系
+        as_head = sum(1 for rel in relations if rel.get('type') == 'CALLS' and rel.get('head') == final_id)
+        as_tail = sum(1 for rel in relations if rel.get('type') == 'CALLS' and rel.get('tail') == final_id)
+
+        if as_head == 0 and as_tail == 0:
+            print(f"    ❌ 这个ID在 CALLS 关系中完全未使用！")
+        else:
+            print(f"    ✓ 调用者 {as_head} 次, 被调用者 {as_tail} 次")
+
+print("\n" + "=" * 80)
 print("💡 建议的修复方案")
 print("=" * 80)
 
-if entity_id_types != relation_id_types:
+# 检查是否有同名函数问题
+has_duplicate_functions = False
+for func_name in key_func_names_to_check:
+    count = sum(1 for e in entities if e.get('name') == func_name and e.get('type') == 'FUNCTION')
+    if count > 1:
+        has_duplicate_functions = True
+        break
+
+if has_duplicate_functions:
+    print("\n❌ 发现核心问题：同名函数导致ID冲突！")
+    print("\n问题根源：")
+    print("  1. 图谱中存在多个同名函数实体（可能来自不同文件或声明/实现）")
+    print("  2. kg_interface.py 使用字典存储：self.entities['FUNCTION'][name] = entity")
+    print("  3. 后加载的实体会覆盖先加载的，导致 find_function() 返回错误的ID")
+    print("  4. CALLS 关系指向被覆盖的旧ID，所以查询时找不到关系")
+    print("\n推荐方案：")
+    print("  方案A: 使用 entity_by_id 查找（推荐）")
+    print("    - 在 get_callees/get_callers 中直接使用 entity_by_id[id]")
+    print("    - 避免通过 find_function(name) 间接查找")
+    print("    - 确保使用关系中实际存在的ID")
+    print("\n  方案B: 改进实体存储结构")
+    print("    - 将 self.entities['FUNCTION'] 从 {name: entity} 改为 {name: [entities]}")
+    print("    - find_function 返回所有同名实体，让调用者选择")
+    print("    - 需要大量代码改动")
+    print("\n  方案C: 过滤掉未使用的实体")
+    print("    - 在加载时，只保留在 CALLS 关系中使用的实体")
+    print("    - 需要先加载关系，再过滤实体")
+    print("\n  建议：先用方案A快速修复，后续考虑方案B优化架构")
+elif entity_id_types != relation_id_types:
     print("\n检测到ID类型不匹配，建议在代码中统一ID类型:")
     print("\n方案1: 在加载数据时统一转换为字符串")
     print("  - 修改 kg_interface.py 的 _load_merged_format 方法")
