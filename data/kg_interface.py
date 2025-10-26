@@ -42,6 +42,9 @@ class KnowledgeGraphInterface:
         self.decl_to_impl = {}  # {decl_id: impl_id}
         self.impl_to_decl = {}  # {impl_id: [decl_ids]}
 
+        # 函数名到所有ID的映射（支持同名函数）
+        self.func_name_to_ids = {}  # {func_name: [id1, id2, ...]}
+
         # 加载所有数据
         self._load_all_data()
 
@@ -106,6 +109,7 @@ class KnowledgeGraphInterface:
         # 建立声明-实现映射（针对函数）
         if 'FUNCTION' in self.entities:
             self._build_decl_impl_mapping()
+            self._build_func_name_mapping()
 
         # 加载关系
         logger.info(f"加载关系文件: {relation_file.name}")
@@ -176,6 +180,22 @@ class KnowledgeGraphInterface:
 
         if mapping_count > 0:
             logger.info(f"  ✓ 建立声明→实现映射: {mapping_count} 对")
+
+    def _build_func_name_mapping(self):
+        """建立函数名到所有ID的映射（支持同名函数）"""
+        # 遍历所有函数实体，按名称建立ID列表
+        for entity_id, entity in self.entity_by_id.items():
+            if entity.get('type') == 'FUNCTION':
+                func_name = entity.get('name')
+                if func_name:
+                    if func_name not in self.func_name_to_ids:
+                        self.func_name_to_ids[func_name] = []
+                    self.func_name_to_ids[func_name].append(entity_id)
+
+        # 统计有多个ID的函数
+        multi_id_count = sum(1 for ids in self.func_name_to_ids.values() if len(ids) > 1)
+        if multi_id_count > 0:
+            logger.info(f"  ✓ 建立函数名→ID映射: {len(self.func_name_to_ids)} 个函数, {multi_id_count} 个有多个ID")
 
     def normalize_id(self, func_id):
         """
@@ -271,7 +291,12 @@ class KnowledgeGraphInterface:
                             rel['tail'] = str(rel['tail'])
                     self.relations[rel_type] = data
                 logger.info(f"✓ 加载 {rel_type}: {len(self.relations[rel_type])} 个")
-    
+
+        # 建立声明-实现映射和函数名映射（针对函数）
+        if 'FUNCTION' in self.entities:
+            self._build_decl_impl_mapping()
+            self._build_func_name_mapping()
+
     def close(self):
         """关闭连接"""
         logger.info("知识图谱接口关闭")
@@ -866,18 +891,18 @@ class KnowledgeGraphInterface:
         if 'CALLS' not in self.relations:
             return []
 
-        # 获取目标函数的实体（带id）
-        func_entity = self.find_function(func_name)
-        if not func_entity:
+        # 获取该函数名的所有ID（包括声明和实现）
+        all_func_ids = self.func_name_to_ids.get(func_name, [])
+
+        if not all_func_ids:
             return []
 
-        func_id = func_entity.get('id')
-        if not func_id:
-            return []
-
-        # 获取等价ID集合（包括声明和实现）
-        func_id = self.normalize_id(func_id)
-        equivalent_ids = self.get_equivalent_ids(func_id)
+        # 收集所有等价ID（同名函数的所有ID + 声明-实现映射）
+        equivalent_ids = set()
+        for func_id in all_func_ids:
+            equivalent_ids.add(func_id)
+            # 加上声明-实现映射的等价ID
+            equivalent_ids.update(self.get_equivalent_ids(func_id))
 
         callers = []
         for rel in self.relations['CALLS']:
@@ -908,25 +933,23 @@ class KnowledgeGraphInterface:
         if 'CALLS' not in self.relations:
             return []
 
-        # 获取函数的实体（带id）
-        func_entity = self.find_function(func_name)
-        if not func_entity:
+        # 获取该函数名的所有ID（包括声明和实现）
+        all_func_ids = self.func_name_to_ids.get(func_name, [])
+
+        if not all_func_ids:
             return []
 
-        func_id = func_entity.get('id')
-        if not func_id:
-            return []
-
-        # 获取等价ID集合（包括声明和实现）
-        orig_func_id = func_id
-        func_id = self.normalize_id(func_id)
-        equivalent_ids = self.get_equivalent_ids(func_id)
+        # 收集所有等价ID（同名函数的所有ID + 声明-实现映射）
+        equivalent_ids = set()
+        for func_id in all_func_ids:
+            equivalent_ids.add(func_id)
+            # 加上声明-实现映射的等价ID
+            equivalent_ids.update(self.get_equivalent_ids(func_id))
 
         if debug:
             print(f"      [get_callees] {func_name}")
-            print(f"         原始ID: {orig_func_id}")
-            print(f"         标准化ID: {func_id}")
-            print(f"         等价ID: {equivalent_ids}")
+            print(f"         该名称的所有ID: {all_func_ids}")
+            print(f"         等价ID集合: {equivalent_ids}")
 
         callees = []
         matched_count = 0
