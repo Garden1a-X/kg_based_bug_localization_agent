@@ -496,13 +496,23 @@ class KnowledgeGraphInterface:
                 'edges': [边类型列表], # 'direct' 或 {'type': 'indirect', 'bridge': ...}
             }
         """
+        if debug:
+            print(f"\n{'='*80}")
+            print(f"🔍 开始扩展BFS搜索")
+            print(f"{'='*80}")
+            print(f"起点: {start}")
+            print(f"终点: {end}")
+            print(f"最大深度: {max_depth}")
+
         # 获取起点和终点的实体
         start_entity = self.find_function(start)
         end_entity = self.find_function(end)
 
         if not start_entity or not end_entity:
             if debug:
-                logger.warning(f"起点或终点不存在: start={start_entity is not None}, end={end_entity is not None}")
+                print(f"❌ 起点或终点不存在!")
+                print(f"   起点存在: {start_entity is not None}")
+                print(f"   终点存在: {end_entity is not None}")
             return None
 
         start_id = start_entity.get('id')
@@ -510,7 +520,9 @@ class KnowledgeGraphInterface:
 
         if not start_id or not end_id:
             if debug:
-                logger.warning(f"起点或终点没有ID: start_id={start_id}, end_id={end_id}")
+                print(f"❌ 起点或终点没有ID!")
+                print(f"   start_id: {start_id}")
+                print(f"   end_id: {end_id}")
             return None
 
         # 标准化为实现ID
@@ -520,13 +532,15 @@ class KnowledgeGraphInterface:
         end_id = self.normalize_id(end_id)
 
         if debug:
-            logger.info(f"起点: {start} (ID:{orig_start_id} -> {start_id})")
-            logger.info(f"终点: {end} (ID:{orig_end_id} -> {end_id})")
+            print(f"\n📌 ID信息:")
+            print(f"   起点ID: {orig_start_id} -> {start_id}")
+            print(f"   终点ID: {orig_end_id} -> {end_id}")
 
         # 获取终点的等价ID集合
         end_equivalent_ids = self.get_equivalent_ids(end_id)
         if debug:
-            logger.info(f"终点等价ID集合: {end_equivalent_ids}")
+            print(f"   终点等价ID: {end_equivalent_ids}")
+            print()
 
         # BFS搜索（支持间接调用）
         from collections import deque
@@ -556,8 +570,14 @@ class KnowledgeGraphInterface:
                         path_names.append(entity['name'])
 
                 if debug:
-                    logger.success(f"找到路径！探索了 {nodes_explored} 个节点")
-                    logger.info(f"最大队列大小: {max_queue_size}")
+                    print(f"\n{'='*80}")
+                    print(f"✅ 找到路径！")
+                    print(f"{'='*80}")
+                    print(f"📊 搜索统计:")
+                    print(f"   总探索节点: {nodes_explored}")
+                    print(f"   最大队列大小: {max_queue_size}")
+                    print(f"   路径长度: {len(path_names)}")
+                    print(f"{'='*80}\n")
 
                 return {
                     'path': path_names,
@@ -571,13 +591,13 @@ class KnowledgeGraphInterface:
             current_name = current_entity['name']
 
             if debug and nodes_explored <= 20:  # 只输出前20个节点
-                logger.debug(f"探索 #{nodes_explored}: {current_name} (深度 {len(path_ids)})")
+                print(f"🔎 节点 #{nodes_explored}: {current_name} (深度 {len(path_ids)})")
 
             # 1. 获取直接调用的邻居
             direct_callees = self.get_callees(current_name)
 
             if debug and nodes_explored <= 20:
-                logger.debug(f"  直接调用: {len(direct_callees)} 个")
+                print(f"   ├─ 直接调用: {len(direct_callees)} 个")
 
             for callee_name in direct_callees:
                 callee_entity = self.find_function(callee_name)
@@ -602,10 +622,10 @@ class KnowledgeGraphInterface:
             indirect_callees = self._find_indirect_callees(current_name)
 
             if debug and nodes_explored <= 20:
-                logger.debug(f"  间接调用: {len(indirect_callees)} 个")
+                print(f"   └─ 间接调用: {len(indirect_callees)} 个")
                 if indirect_callees:
                     for callee_name, bridge_info in indirect_callees:
-                        logger.debug(f"    -> {callee_name} ({bridge_info.get('bridge_type', 'unknown')})")
+                        print(f"      ➜ {callee_name} ({bridge_info.get('bridge_type', 'unknown')})")
 
             for callee_name, bridge_info in indirect_callees:
                 callee_entity = self.find_function(callee_name)
@@ -628,10 +648,14 @@ class KnowledgeGraphInterface:
 
         # 搜索失败
         if debug:
-            logger.warning(f"未找到路径！")
-            logger.info(f"总共探索了 {nodes_explored} 个节点")
-            logger.info(f"最大队列大小: {max_queue_size}")
-            logger.info(f"访问过的节点数: {len(visited)}")
+            print(f"\n{'='*80}")
+            print(f"❌ 搜索失败，未找到路径")
+            print(f"{'='*80}")
+            print(f"📊 搜索统计:")
+            print(f"   总探索节点: {nodes_explored}")
+            print(f"   最大队列大小: {max_queue_size}")
+            print(f"   访问节点总数: {len(visited)}")
+            print(f"{'='*80}\n")
 
         return None
 
