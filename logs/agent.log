@@ -1,0 +1,40 @@
+2025-10-24 20:20:23 | INFO     | coordinator.master_coordinator_json:__init__:28 - 初始化主协调器（JSON模式）...
+2025-10-24 20:20:23 | INFO     | data.json_kg_interface:_load_all_data:35 - 正在加载JSON数据...
+2025-10-24 20:20:23 | INFO     | data.json_kg_interface:__init__:31 - 已从JSON加载图谱: /data/xuao/code_kg_search/linux_test
+2025-10-24 20:20:23 | SUCCESS  | coordinator.master_coordinator_json:__init__:42 - 协调器初始化完成（JSON模式）
+2025-10-24 20:20:23 | INFO     | agents.base_agent:log_start:33 - [LogParser] 开始: 解析错误日志
+2025-10-24 20:20:23 | SUCCESS  | agents.base_agent:log_success:37 - [LogParser] ✓ 提取到 3 个错误消息
+2025-10-24 20:20:23 | INFO     | agents.base_agent:log_info:49 - [LogParser] 涉及函数: []
+2025-10-24 20:20:23 | INFO     | agents.base_agent:log_start:33 - [EntityLocator] 开始: 在图谱中定位实体
+2025-10-24 20:20:23 | WARNING  | agents.base_agent:log_warning:41 - [EntityLocator] ⚠ 未找到起点函数
+2025-10-24 20:20:23 | WARNING  | agents.base_agent:log_warning:41 - [EntityLocator] ⚠ 未找到终点函数
+2025-10-24 20:20:23 | INFO     | agents.base_agent:log_start:33 - [LogParser] 开始: 解析错误日志
+2025-10-24 20:20:23 | SUCCESS  | agents.base_agent:log_success:37 - [LogParser] ✓ 提取到 3 个错误消息
+2025-10-24 20:20:23 | INFO     | agents.base_agent:log_info:49 - [LogParser] 涉及函数: []
+2025-10-24 20:20:23 | INFO     | agents.base_agent:log_start:33 - [EntityLocator] 开始: 定位指定函数: dw_mci_pltfm_probe -> dw_mci_execute_tuning
+2025-10-24 20:20:23 | WARNING  | agents.base_agent:log_warning:41 - [EntityLocator] ⚠ 精确匹配失败，尝试模糊匹配: dw_mci_pltfm_probe
+2025-10-24 20:20:23 | ERROR    | agents.base_agent:log_error:45 - [EntityLocator] ✗ 未找到函数: dw_mci_pltfm_probe
+2025-10-24 20:20:23 | WARNING  | agents.base_agent:log_warning:41 - [EntityLocator] ⚠ 精确匹配失败，尝试模糊匹配: dw_mci_execute_tuning
+2025-10-24 20:20:23 | ERROR    | agents.base_agent:log_error:45 - [EntityLocator] ✗ 未找到函数: dw_mci_execute_tuning
+2025-10-24 20:20:23 | INFO     | data.json_kg_interface:close:84 - JSON图谱接口关闭
+2025-10-24 20:20:23 | INFO     | coordinator.master_coordinator_json:close:267 - 协调器已关闭
+2025-10-26 16:15:55 | INFO     | coordinator.master_coordinator_json:__init__:28 - 初始化主协调器（JSON模式）...
+2025-10-26 16:15:55 | INFO     | data.json_kg_interface:_load_all_data:35 - 正在加载JSON数据...
+2025-10-26 16:15:55 | INFO     | data.json_kg_interface:__init__:31 - 已从JSON加载图谱: /data/xuao/code_kg_search/linux_test
+2025-10-26 16:15:55 | SUCCESS  | coordinator.master_coordinator_json:__init__:42 - 协调器初始化完成（JSON模式）
+2025-10-26 16:15:55 | INFO     | agents.base_agent:log_start:33 - [LogParser] 开始: 解析错误日志
+2025-10-26 16:15:55 | SUCCESS  | agents.base_agent:log_success:37 - [LogParser] ✓ 提取到 3 个错误消息
+2025-10-26 16:15:55 | INFO     | agents.base_agent:log_info:49 - [LogParser] 涉及函数: []
+2025-10-26 16:15:55 | INFO     | agents.base_agent:log_start:33 - [EntityLocator] 开始: 在图谱中定位实体
+2025-10-26 16:15:55 | WARNING  | agents.base_agent:log_warning:41 - [EntityLocator] ⚠ 未找到起点函数
+2025-10-26 16:15:55 | WARNING  | agents.base_agent:log_warning:41 - [EntityLocator] ⚠ 未找到终点函数
+2025-10-26 16:15:55 | INFO     | agents.base_agent:log_start:33 - [LogParser] 开始: 解析错误日志
+2025-10-26 16:15:55 | SUCCESS  | agents.base_agent:log_success:37 - [LogParser] ✓ 提取到 3 个错误消息
+2025-10-26 16:15:55 | INFO     | agents.base_agent:log_info:49 - [LogParser] 涉及函数: []
+2025-10-26 16:15:55 | INFO     | agents.base_agent:log_start:33 - [EntityLocator] 开始: 定位指定函数: dw_mci_pltfm_probe -> dw_mci_execute_tuning
+2025-10-26 16:15:55 | WARNING  | agents.base_agent:log_warning:41 - [EntityLocator] ⚠ 精确匹配失败，尝试模糊匹配: dw_mci_pltfm_probe
+2025-10-26 16:15:55 | ERROR    | agents.base_agent:log_error:45 - [EntityLocator] ✗ 未找到函数: dw_mci_pltfm_probe
+2025-10-26 16:15:55 | WARNING  | agents.base_agent:log_warning:41 - [EntityLocator] ⚠ 精确匹配失败，尝试模糊匹配: dw_mci_execute_tuning
+2025-10-26 16:15:55 | ERROR    | agents.base_agent:log_error:45 - [EntityLocator] ✗ 未找到函数: dw_mci_execute_tuning
+2025-10-26 16:15:55 | INFO     | data.json_kg_interface:close:84 - JSON图谱接口关闭
+2025-10-26 16:15:55 | INFO     | coordinator.master_coordinator_json:close:267 - 协调器已关闭

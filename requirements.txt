@@ -1,0 +1,19 @@
+# 核心依赖
+neo4j>=5.0.0              # Neo4j图数据库驱动
+anthropic>=0.18.0         # Claude API客户端
+python-dotenv>=1.0.0      # 环境变量管理
+
+# 数据验证和配置
+pydantic>=2.0.0           # 数据验证
+pydantic-settings>=2.0.0  # 设置管理
+
+# 日志和输出美化
+rich>=13.0.0              # 终端美化输出
+loguru>=0.7.0             # 更好的日志
+
+# 测试
+pytest>=7.0.0             # 测试框架
+pytest-cov>=4.0.0         # 测试覆盖率
+
+# 工具
+requests>=2.31.0          # HTTP请求（备用）
