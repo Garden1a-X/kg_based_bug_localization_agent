@@ -119,3 +119,31 @@ def get_all_mock_relations():
         })
 
     return relations
+
+
+def get_mock_indirect_callees(caller: str) -> list:
+    """
+    获取某个函数的所有 mock 间接调用目标
+
+    TODO: 等图谱修复后删除此函数
+
+    Args:
+        caller: 调用者函数名
+
+    Returns:
+        [(callee, bridge_info), ...] 列表
+    """
+    indirect_callees = []
+
+    # 检查异步调用
+    for (c, callee), info in MOCK_ASYNC_CALLS.items():
+        if c == caller:
+            indirect_callees.append((callee, info))
+
+    # 检查函数指针
+    for (c, callee), info in MOCK_FUNCTION_POINTER_CALLS.items():
+        if c == caller:
+            indirect_callees.append((callee, info))
+
+    return indirect_callees
+

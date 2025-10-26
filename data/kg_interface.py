@@ -13,7 +13,8 @@ from pathlib import Path
 # ============================================================
 from data.mock_indirect_calls import (
     get_mock_async_bridge,
-    get_mock_function_pointer_bridge
+    get_mock_function_pointer_bridge,
+    get_mock_indirect_callees
 )
 
 
@@ -383,31 +384,21 @@ class KnowledgeGraphInterface:
         """
         indirect_calls = []
 
-        # 获取所有可能的目标函数（限制搜索范围提高性能）
-        if 'FUNCTION' not in self.entities:
-            return indirect_calls
+        # ============================================================
+        # TODO: 等图谱修复后，这里应该查询 ASSIGNED_TO 关系
+        # 目前使用 mock 数据进行高效查询
+        # ============================================================
+        mock_callees = get_mock_indirect_callees(func_name)
+        if mock_callees:
+            logger.debug(f"函数 {func_name} 有 {len(mock_callees)} 个 mock 间接调用")
+            return mock_callees
 
-        # 只检查常见的间接调用目标（可以基于启发式规则优化）
-        # 这里我们检查所有函数，但实际应用中可以优化
-        candidate_functions = list(self.entities['FUNCTION'].keys())
-
-        # 限制候选数量，避免性能问题
-        MAX_CANDIDATES = 100
-        if len(candidate_functions) > MAX_CANDIDATES:
-            # 优先检查名字相关的函数
-            candidate_functions = candidate_functions[:MAX_CANDIDATES]
-
-        for target_func in candidate_functions:
-            # 检查异步调用
-            async_bridge = self.check_async_pattern(func_name, target_func)
-            if async_bridge:
-                indirect_calls.append((target_func, async_bridge))
-                continue
-
-            # 检查函数指针
-            fp_bridge = self.check_function_pointer_pattern(func_name, target_func)
-            if fp_bridge:
-                indirect_calls.append((target_func, fp_bridge))
+        # 如果图谱有 ASSIGNED_TO 关系，在这里查询
+        # TODO: 实现基于 ASSIGNED_TO 关系的查询
+        # if 'ASSIGNED_TO' in self.relations:
+        #     for rel in self.relations['ASSIGNED_TO']:
+        #         if matches_async_or_fp_pattern(rel, func_name):
+        #             indirect_calls.append(...)
 
         return indirect_calls
 
