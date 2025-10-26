@@ -38,6 +38,10 @@ class KnowledgeGraphInterface:
         self.relations = {}  # {rel_type: [relations]}
         self.entity_by_id = {}  # {id: entity} - 用于通过id快速查找
 
+        # 声明-实现映射
+        self.decl_to_impl = {}  # {decl_id: impl_id}
+        self.impl_to_decl = {}  # {impl_id: [decl_ids]}
+
         # 加载所有数据
         self._load_all_data()
 
@@ -93,6 +97,10 @@ class KnowledgeGraphInterface:
             for entity_type, entities in self.entities.items():
                 logger.info(f"  ✓ 加载 {entity_type}: {len(entities)} 个")
 
+        # 建立声明-实现映射（针对函数）
+        if 'FUNCTION' in self.entities:
+            self._build_decl_impl_mapping()
+
         # 加载关系
         logger.info(f"加载关系文件: {relation_file.name}")
         with open(relation_file, 'r', encoding='utf-8') as f:
@@ -116,6 +124,75 @@ class KnowledgeGraphInterface:
 
             for rel_type, relations in self.relations.items():
                 logger.info(f"  ✓ 加载 {rel_type}: {len(relations)} 个")
+
+    def _build_decl_impl_mapping(self):
+        """建立函数声明-实现映射"""
+        from collections import defaultdict
+
+        func_by_name = defaultdict(lambda: {'decls': [], 'impls': []})
+
+        # 按名称分组，区分声明和实现
+        for func_name, func_entity in self.entities['FUNCTION'].items():
+            func_id = func_entity.get('id')
+            is_decl = func_entity.get('is_declaration', False)
+
+            if is_decl:
+                func_by_name[func_name]['decls'].append(func_id)
+            else:
+                func_by_name[func_name]['impls'].append(func_id)
+
+        # 建立映射关系
+        mapping_count = 0
+        for func_name, ids in func_by_name.items():
+            decls = ids['decls']
+            impls = ids['impls']
+
+            # 如果有实现，将所有声明映射到第一个实现
+            if impls:
+                impl_id = impls[0]
+                for decl_id in decls:
+                    self.decl_to_impl[decl_id] = impl_id
+                    if impl_id not in self.impl_to_decl:
+                        self.impl_to_decl[impl_id] = []
+                    self.impl_to_decl[impl_id].append(decl_id)
+                    mapping_count += 1
+
+        if mapping_count > 0:
+            logger.info(f"  ✓ 建立声明→实现映射: {mapping_count} 对")
+
+    def normalize_id(self, func_id):
+        """
+        标准化为实现ID
+
+        Args:
+            func_id: 函数ID（可能是声明或实现）
+
+        Returns:
+            实现ID
+        """
+        return self.decl_to_impl.get(func_id, func_id)
+
+    def get_equivalent_ids(self, func_id):
+        """
+        获取等价ID集合（包括声明和实现）
+
+        Args:
+            func_id: 函数ID
+
+        Returns:
+            等价ID集合
+        """
+        equivalent = {func_id}
+
+        # 如果是声明，添加对应的实现
+        if func_id in self.decl_to_impl:
+            equivalent.add(self.decl_to_impl[func_id])
+
+        # 如果是实现，添加所有对应的声明
+        if func_id in self.impl_to_decl:
+            equivalent.update(self.impl_to_decl[func_id])
+
+        return equivalent
 
     def _load_separated_format(self):
         """加载分散格式的数据（多个独立文件）"""
@@ -431,6 +508,13 @@ class KnowledgeGraphInterface:
         if not start_id or not end_id:
             return None
 
+        # 标准化为实现ID
+        start_id = self.normalize_id(start_id)
+        end_id = self.normalize_id(end_id)
+
+        # 获取终点的等价ID集合
+        end_equivalent_ids = self.get_equivalent_ids(end_id)
+
         # BFS搜索（支持间接调用）
         from collections import deque
 
@@ -443,7 +527,8 @@ class KnowledgeGraphInterface:
             if len(path_ids) > max_depth:
                 continue
 
-            if current_id == end_id:
+            # 检查是否到达终点（使用等价ID集合）
+            if current_id in end_equivalent_ids:
                 # 将id路径转换为名字路径
                 path_names = []
                 for entity_id in path_ids:
@@ -470,6 +555,11 @@ class KnowledgeGraphInterface:
                     continue
 
                 callee_id = callee_entity.get('id')
+                if not callee_id:
+                    continue
+
+                # 标准化ID
+                callee_id = self.normalize_id(callee_id)
                 if callee_id and callee_id not in visited:
                     visited.add(callee_id)
                     queue.append((
@@ -486,6 +576,11 @@ class KnowledgeGraphInterface:
                     continue
 
                 callee_id = callee_entity.get('id')
+                if not callee_id:
+                    continue
+
+                # 标准化ID
+                callee_id = self.normalize_id(callee_id)
                 if callee_id and callee_id not in visited:
                     visited.add(callee_id)
                     queue.append((
