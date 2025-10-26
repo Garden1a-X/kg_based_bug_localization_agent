@@ -594,7 +594,7 @@ class KnowledgeGraphInterface:
                 print(f"🔎 节点 #{nodes_explored}: {current_name} (深度 {len(path_ids)})")
 
             # 1. 获取直接调用的邻居
-            direct_callees = self.get_callees(current_name)
+            direct_callees = self.get_callees(current_name, debug=(debug and nodes_explored <= 5))
 
             if debug and nodes_explored <= 20:
                 print(f"   ├─ 直接调用: {len(direct_callees)} 个")
@@ -863,12 +863,13 @@ class KnowledgeGraphInterface:
 
         return list(set(callers))
 
-    def get_callees(self, func_name: str) -> List[str]:
+    def get_callees(self, func_name: str, debug: bool = False) -> List[str]:
         """
         获取某函数调用的所有函数
 
         Args:
             func_name: 函数名
+            debug: 是否输出调试信息
 
         Returns:
             被调用函数名列表
@@ -886,21 +887,36 @@ class KnowledgeGraphInterface:
             return []
 
         # 获取等价ID集合（包括声明和实现）
+        orig_func_id = func_id
         func_id = self.normalize_id(func_id)
         equivalent_ids = self.get_equivalent_ids(func_id)
 
+        if debug:
+            print(f"      [get_callees] {func_name}")
+            print(f"         原始ID: {orig_func_id}")
+            print(f"         标准化ID: {func_id}")
+            print(f"         等价ID: {equivalent_ids}")
+
         callees = []
+        matched_count = 0
         for rel in self.relations['CALLS']:
             head = rel.get('head')  # caller id
             tail = rel.get('tail')  # callee id
 
             # 检查 head 是否是当前函数的等价ID之一
             if head in equivalent_ids:
+                matched_count += 1
                 # 标准化 tail 并查找名字
                 tail_normalized = self.normalize_id(tail)
                 callee_entity = self.entity_by_id.get(tail_normalized)
                 if callee_entity and 'name' in callee_entity:
                     callees.append(callee_entity['name'])
+                    if debug and matched_count <= 3:
+                        print(f"         ✓ 找到调用: {callee_entity['name']}")
+
+        if debug:
+            print(f"         匹配的关系数: {matched_count}")
+            print(f"         被调用函数: {len(callees)} 个")
 
         return list(set(callees))
     
