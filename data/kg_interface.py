@@ -479,7 +479,7 @@ class KnowledgeGraphInterface:
 
         return indirect_calls
 
-    def find_call_path_with_indirect(self, start: str, end: str, max_depth: int = 10) -> Optional[Dict]:
+    def find_call_path_with_indirect(self, start: str, end: str, max_depth: int = 10, debug: bool = False) -> Optional[Dict]:
         """
         查找调用路径（支持间接调用）
 
@@ -487,6 +487,7 @@ class KnowledgeGraphInterface:
             start: 起始函数名
             end: 目标函数名
             max_depth: 最大搜索深度
+            debug: 是否输出调试信息
 
         Returns:
             包含路径和边类型信息的字典，如果不存在返回None
@@ -500,20 +501,32 @@ class KnowledgeGraphInterface:
         end_entity = self.find_function(end)
 
         if not start_entity or not end_entity:
+            if debug:
+                logger.warning(f"起点或终点不存在: start={start_entity is not None}, end={end_entity is not None}")
             return None
 
         start_id = start_entity.get('id')
         end_id = end_entity.get('id')
 
         if not start_id or not end_id:
+            if debug:
+                logger.warning(f"起点或终点没有ID: start_id={start_id}, end_id={end_id}")
             return None
 
         # 标准化为实现ID
+        orig_start_id = start_id
+        orig_end_id = end_id
         start_id = self.normalize_id(start_id)
         end_id = self.normalize_id(end_id)
 
+        if debug:
+            logger.info(f"起点: {start} (ID:{orig_start_id} -> {start_id})")
+            logger.info(f"终点: {end} (ID:{orig_end_id} -> {end_id})")
+
         # 获取终点的等价ID集合
         end_equivalent_ids = self.get_equivalent_ids(end_id)
+        if debug:
+            logger.info(f"终点等价ID集合: {end_equivalent_ids}")
 
         # BFS搜索（支持间接调用）
         from collections import deque
@@ -521,7 +534,13 @@ class KnowledgeGraphInterface:
         queue = deque([(start_id, [start_id], [])])  # (当前id, 路径ids, 边类型)
         visited = {start_id}
 
+        nodes_explored = 0
+        max_queue_size = 0
+
         while queue:
+            nodes_explored += 1
+            max_queue_size = max(max_queue_size, len(queue))
+
             current_id, path_ids, edge_types = queue.popleft()
 
             if len(path_ids) > max_depth:
@@ -536,6 +555,10 @@ class KnowledgeGraphInterface:
                     if entity:
                         path_names.append(entity['name'])
 
+                if debug:
+                    logger.success(f"找到路径！探索了 {nodes_explored} 个节点")
+                    logger.info(f"最大队列大小: {max_queue_size}")
+
                 return {
                     'path': path_names,
                     'edges': edge_types
@@ -547,8 +570,15 @@ class KnowledgeGraphInterface:
 
             current_name = current_entity['name']
 
+            if debug and nodes_explored <= 20:  # 只输出前20个节点
+                logger.debug(f"探索 #{nodes_explored}: {current_name} (深度 {len(path_ids)})")
+
             # 1. 获取直接调用的邻居
             direct_callees = self.get_callees(current_name)
+
+            if debug and nodes_explored <= 20:
+                logger.debug(f"  直接调用: {len(direct_callees)} 个")
+
             for callee_name in direct_callees:
                 callee_entity = self.find_function(callee_name)
                 if not callee_entity:
@@ -570,6 +600,13 @@ class KnowledgeGraphInterface:
 
             # 2. 获取间接调用的邻居
             indirect_callees = self._find_indirect_callees(current_name)
+
+            if debug and nodes_explored <= 20:
+                logger.debug(f"  间接调用: {len(indirect_callees)} 个")
+                if indirect_callees:
+                    for callee_name, bridge_info in indirect_callees:
+                        logger.debug(f"    -> {callee_name} ({bridge_info.get('bridge_type', 'unknown')})")
+
             for callee_name, bridge_info in indirect_callees:
                 callee_entity = self.find_function(callee_name)
                 if not callee_entity:
@@ -588,6 +625,13 @@ class KnowledgeGraphInterface:
                         path_ids + [callee_id],
                         edge_types + [{'type': 'indirect', 'bridge': bridge_info}]
                     ))
+
+        # 搜索失败
+        if debug:
+            logger.warning(f"未找到路径！")
+            logger.info(f"总共探索了 {nodes_explored} 个节点")
+            logger.info(f"最大队列大小: {max_queue_size}")
+            logger.info(f"访问过的节点数: {len(visited)}")
 
         return None
 
