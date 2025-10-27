@@ -221,12 +221,54 @@ def check_16_node_path(function_by_name, call_graph, all_relations, function_by_
 
         # 检查这些节点对之间是否有其他类型的关系
         print(f"\n🔍 检查不可达节点对的其他关系类型:")
-        check_alternative_relations(unreachable_pairs, function_by_name, all_relations, function_by_id)
+        # 需要先建立DECL_IMPL映射
+        decl_to_impl, impl_to_decl = build_decl_impl_mapping(all_relations)
+        check_alternative_relations(unreachable_pairs, function_by_name, all_relations, function_by_id, decl_to_impl, impl_to_decl)
 
     return reachable, unreachable
 
 
-def check_alternative_relations(unreachable_pairs, function_by_name, all_relations, function_by_id):
+def build_decl_impl_mapping(relations):
+    """建立声明-实现映射"""
+    print("\n" + "=" * 80)
+    print("建立声明-实现映射")
+    print("=" * 80)
+
+    decl_to_impl = {}
+    impl_to_decl = {}
+
+    decl_impl_rels = [r for r in relations if r.get('type') == 'DECL_IMPL']
+    print(f"\n找到 {len(decl_impl_rels)} 条DECL_IMPL关系")
+
+    for rel in decl_impl_rels:
+        decl_id = str(rel.get('head', ''))
+        impl_id = str(rel.get('tail', ''))
+        if decl_id and impl_id:
+            decl_to_impl[decl_id] = impl_id
+            impl_to_decl[impl_id] = decl_id
+
+    print(f"声明→实现映射: {len(decl_to_impl)} 条")
+    print(f"实现→声明映射: {len(impl_to_decl)} 条")
+
+    return decl_to_impl, impl_to_decl
+
+
+def get_all_equivalent_ids(func_id, decl_to_impl, impl_to_decl):
+    """获取函数ID的所有等价ID（包括声明和实现）"""
+    equivalent_ids = {func_id}
+
+    # 如果是声明，添加实现
+    if func_id in decl_to_impl:
+        equivalent_ids.add(decl_to_impl[func_id])
+
+    # 如果是实现，添加声明
+    if func_id in impl_to_decl:
+        equivalent_ids.add(impl_to_decl[func_id])
+
+    return equivalent_ids
+
+
+def check_alternative_relations(unreachable_pairs, function_by_name, all_relations, function_by_id, decl_to_impl, impl_to_decl):
     """检查不可达节点对之间的其他关系类型"""
 
     # 构建ID到名称的反向映射
@@ -235,13 +277,27 @@ def check_alternative_relations(unreachable_pairs, function_by_name, all_relatio
     for pos, caller_name, callee_name in unreachable_pairs:
         print(f"\n  [{pos:2d}→{pos+1:2d}] {caller_name} → {callee_name}:")
 
-        # 获取caller和callee的所有ID
-        caller_ids = [str(func.get('id')) for func in function_by_name.get(caller_name, [])]
-        callee_ids = [str(func.get('id')) for func in function_by_name.get(callee_name, [])]
+        # 获取caller和callee的所有ID（包括声明和实现）
+        caller_base_ids = [str(func.get('id')) for func in function_by_name.get(caller_name, [])]
+        callee_base_ids = [str(func.get('id')) for func in function_by_name.get(callee_name, [])]
 
-        if not caller_ids or not callee_ids:
+        if not caller_base_ids or not callee_base_ids:
             print(f"    ⚠️  无法获取函数ID")
             continue
+
+        # 扩展到所有等价ID
+        caller_ids = set()
+        for base_id in caller_base_ids:
+            caller_ids.update(get_all_equivalent_ids(base_id, decl_to_impl, impl_to_decl))
+
+        callee_ids = set()
+        for base_id in callee_base_ids:
+            callee_ids.update(get_all_equivalent_ids(base_id, decl_to_impl, impl_to_decl))
+
+        print(f"    调试: caller有 {len(caller_base_ids)} 个基础ID, 扩展到 {len(caller_ids)} 个等价ID")
+        print(f"    调试: callee有 {len(callee_base_ids)} 个基础ID, 扩展到 {len(callee_ids)} 个等价ID")
+        print(f"    调试: caller IDs: {caller_ids}")
+        print(f"    调试: callee IDs: {callee_ids}")
 
         # 查找这些ID之间的所有关系
         relations_found = defaultdict(list)
@@ -251,35 +307,25 @@ def check_alternative_relations(unreachable_pairs, function_by_name, all_relatio
             tail = str(rel.get('tail', ''))
             rel_type = rel.get('type', 'UNKNOWN')
 
-            # 检查是否是caller到callee的关系
+            # 检查是否是caller到callee的关系（任意方向）
             if head in caller_ids and tail in callee_ids:
                 relations_found[rel_type].append(rel)
-            # 也检查中间节点的可能性
-            elif head in caller_ids and id_to_name.get(tail):
-                # caller指向某个中间节点
-                intermediate = id_to_name.get(tail)
-                if intermediate and intermediate != caller_name and intermediate != callee_name:
-                    # 检查这个中间节点是否能到达callee
-                    if any(str(r.get('head')) == tail and str(r.get('tail')) in callee_ids
-                           for r in all_relations):
-                        relations_found[f'via_{intermediate}'].append({
-                            'type': rel_type,
-                            'intermediate': intermediate
-                        })
+            elif head in callee_ids and tail in caller_ids:
+                # 反向关系也记录
+                relations_found[f'{rel_type}_REVERSE'].append(rel)
 
         if relations_found:
             print(f"    ✅ 找到其他关系:")
             for rel_type, rels in relations_found.items():
-                if rel_type.startswith('via_'):
-                    intermediate = rel_type[4:]
-                    print(f"      - 通过中间节点 {intermediate}: {len(rels)} 条")
-                else:
-                    print(f"      - {rel_type}: {len(rels)} 条")
-                    if len(rels) <= 3:
-                        for rel in rels:
-                            print(f"        示例: {rel}")
+                print(f"      - {rel_type}: {len(rels)} 条")
+                # 显示前3个示例
+                for i, rel in enumerate(rels[:3]):
+                    head_name = id_to_name.get(str(rel.get('head')), f"ID:{rel.get('head')}")
+                    tail_name = id_to_name.get(str(rel.get('tail')), f"ID:{rel.get('tail')}")
+                    print(f"        [{i+1}] {head_name} → {tail_name}")
+                    print(f"            {rel}")
         else:
-            print(f"    ❌ 未找到任何直接关系")
+            print(f"    ❌ 未找到任何关系（检查了 {len(caller_ids)} × {len(callee_ids)} = {len(caller_ids)*len(callee_ids)} 种ID组合）")
 
 
 def check_relation_types(data):
