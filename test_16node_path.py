@@ -32,24 +32,24 @@ def test_16_node_path():
     data_dir = "/data/xuao/code_kg_search/linux_test/data"
     kg = KnowledgeGraphInterface(data_dir=data_dir)
 
-    # 2. 定义预期路径（16个节点）
+    # 2. 定义预期路径（16个节点）- 根据甲方提供的正确路径
     expected_path = [
-        "dw_mci_pltfm_register",
-        "dw_mci_probe",
-        "dw_mci_init_slot",
-        "mmc_add_host",              # 断点4: dw_mci_init_slot → mmc_add_host (Mock)
-        "mmc_start_host",
-        "_mmc_detect_change",
-        "mmc_schedule_delayed_work",
-        "mmc_rescan",                # 断点8: mmc_schedule_delayed_work → mmc_rescan (Mock)
-        "mmc_rescan_try_freq",
-        "mmc_attach_mmc",
-        "mmc_init_card",
-        "mmc_set_bus_speed",
-        "mmc_set_timing",
-        "mmc_execute_tuning",
-        "dw_mci_execute_tuning",     # 断点14: mmc_execute_tuning → dw_mci_execute_tuning (Mock)
-        "dw_mci_hi3660_execute_tuning"  # 断点15: dw_mci_execute_tuning → dw_mci_hi3660_execute_tuning (Mock)
+        "dw_mci_pltfm_probe",        # 节点1: 起点
+        "dw_mci_pltfm_register",     # 节点2
+        "dw_mci_probe",              # 节点3
+        "dw_mci_init_slot",          # 节点4
+        "mmc_add_host",              # 节点5 (断点4: dw_mci_init_slot → mmc_add_host, Mock)
+        "mmc_start_host",            # 节点6
+        "_mmc_detect_change",        # 节点7
+        "mmc_schedule_delayed_work", # 节点8
+        "mmc_rescan",                # 节点9 (断点8: mmc_schedule_delayed_work → mmc_rescan, Mock)
+        "mmc_rescan_try_freq",       # 节点10
+        "mmc_attach_mmc",            # 节点11
+        "mmc_init_card",             # 节点12
+        "mmc_hs200_tuning",          # 节点13 (不是 mmc_set_bus_speed/mmc_set_timing)
+        "mmc_execute_tuning",        # 节点14
+        "dw_mci_execute_tuning",     # 节点15 (断点14: mmc_execute_tuning → dw_mci_execute_tuning, Mock)
+        "dw_mci_hi3660_execute_tuning"  # 节点16 (断点15: dw_mci_execute_tuning → dw_mci_hi3660_execute_tuning, Mock)
     ]
 
     # 3. 检查每个节点是否存在
@@ -72,12 +72,12 @@ def test_16_node_path():
     # 4. 检查相邻节点的连通性（包括Mock间接调用）
     print(f"\n[3/4] 检查相邻节点对的连通性（直接调用 + Mock间接调用）...")
 
-    # Mock间接调用断点
+    # Mock间接调用断点（在16节点路径中的位置）
     mock_breaks = {
-        ("dw_mci_init_slot", "mmc_add_host"): 4,
-        ("mmc_schedule_delayed_work", "mmc_rescan"): 8,
-        ("mmc_execute_tuning", "dw_mci_execute_tuning"): 14,
-        ("dw_mci_execute_tuning", "dw_mci_hi3660_execute_tuning"): 15,
+        ("dw_mci_init_slot", "mmc_add_host"): "4→5",              # 位置4
+        ("mmc_schedule_delayed_work", "mmc_rescan"): "8→9",       # 位置8
+        ("mmc_execute_tuning", "dw_mci_execute_tuning"): "14→15",  # 位置14
+        ("dw_mci_execute_tuning", "dw_mci_hi3660_execute_tuning"): "15→16",  # 位置15
     }
 
     reachable_count = 0
