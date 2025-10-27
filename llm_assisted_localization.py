@@ -228,18 +228,11 @@ class LLMAssistedLocalization:
 def main():
     """示例：使用LLM辅助定位"""
 
-    # 示例bug日志（这是之前的dw_mci例子）
+    # 示例bug日志（甲方提供的三行报错）
     bug_log = """
-[    2.123456] dw_mci_probe: Synopsys Designware Multimedia Card Interface Driver
-[    2.234567] dw_mci_probe: allocated host
-[    2.345678] dw_mci_init_slot: initializing slot 0
-[    2.456789] mmc0: new high speed SDHC card at address 0001
-[    2.567890] mmcblk0: mmc0:0001 SD32G 29.7 GiB
-[    3.678901] mmcblk0: p1
-[   10.123456] mmc0: Timeout waiting for hardware interrupt.
-[   10.234567] mmc0: Controller tuning failed
-[   10.345678] mmc_execute_tuning: tuning execution failed
-[   10.456789] dw_mci_execute_tuning: tuning failed with error -110
+mmc0: Timeout waiting for hardware interrupt.
+mmc0: Controller tuning failed
+ERROR: __mmc_switch timeout!
     """
 
     # 初始化知识图谱接口（使用Mock数据）
