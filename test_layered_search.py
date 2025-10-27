@@ -56,7 +56,7 @@ if not start_entity or not end_entity:
     print("✗ 函数不存在，跳过测试")
 else:
     print("\n执行扩展搜索...")
-    result = tracer.execute(start_entity, end_entity, max_depth=15)
+    result = tracer.execute(start_entity, end_entity, max_depth=20)
 
     print(f"\n结果:")
     print(f"  - 成功: {result['success']}")

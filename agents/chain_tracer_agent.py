@@ -30,7 +30,7 @@ class CallChainTracerAgent(BaseAgent):
         }
     
     def execute(self, start_entity: Dict, end_entity: Dict,
-                max_depth: int = 15) -> Dict:
+                max_depth: int = 20) -> Dict:
         """
         追踪调用链 - 分层降级策略
 

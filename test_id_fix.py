@@ -53,7 +53,7 @@ end_func = "dw_mci_execute_tuning"
 
 print(f"\n查找路径: {start_func} -> {end_func}")
 
-result = kg.find_call_path_with_indirect(start_func, end_func, max_depth=15, debug=False)
+result = kg.find_call_path_with_indirect(start_func, end_func, max_depth=20, debug=False)
 
 if result and result['path']:
     print(f"\n✓ 找到路径！长度: {len(result['path'])}")

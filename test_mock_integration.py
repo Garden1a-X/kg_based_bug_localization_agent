@@ -65,7 +65,7 @@ else:
     # 测试部分路径（到第一个断点之前）
     print("\n测试3: 查找到 mmc_schedule_delayed_work 的路径")
     intermediate = "mmc_schedule_delayed_work"
-    path_to_async = kg.find_call_path(start_func, intermediate, max_depth=10)
+    path_to_async = kg.find_call_path(start_func, intermediate, max_depth=20)
 
     if path_to_async:
         print(f"  ✓ 找到路径，长度: {len(path_to_async)}")
@@ -91,7 +91,7 @@ else:
     print(f"\n  追踪: {start_func} -> mmc_rescan")
     mmc_rescan_entity = kg.find_function("mmc_rescan")
     if mmc_rescan_entity:
-        result = tracer.execute(start_entity, mmc_rescan_entity, max_depth=15)
+        result = tracer.execute(start_entity, mmc_rescan_entity, max_depth=20)
 
         print(f"\n  结果:")
         print(f"    - 成功: {result['success']}")
