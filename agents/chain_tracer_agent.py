@@ -10,6 +10,8 @@
 from typing import List, Optional, Dict, Tuple, Set
 from agents.base_agent import BaseAgent
 from data.kg_interface import KnowledgeGraphInterface
+from utils.source_code_reader import SourceCodeReader
+from agents.source_code_bridge_finder import SourceCodeBridgeFinder
 from loguru import logger
 
 
@@ -20,12 +22,17 @@ class CallChainTracerAgent(BaseAgent):
         super().__init__("CallChainTracer")
         self.kg = kg
         self.llm = llm_client  # 可选的LLM客户端
-        
+
+        # 源码分析工具（用于LLM分析源码找断点连接）
+        self.source_reader = SourceCodeReader()
+        self.bridge_finder = SourceCodeBridgeFinder() if llm_client else None
+
         # 统计信息
         self.stats = {
             'total_breaks': 0,
             'fixed_by_rules': 0,
             'fixed_by_llm': 0,
+            'fixed_by_source_analysis': 0,  # 新增：通过源码分析修复的数量
             'unfixed': 0
         }
     
@@ -264,39 +271,105 @@ class CallChainTracerAgent(BaseAgent):
     def _check_async_pattern(self, node_a: str, node_b: str) -> Optional[Dict]:
         """
         规则1: 检查异步调用模式（work_struct）
-        
+
+        优先使用LLM源码分析，失败后回退到Mock数据
+
         Args:
             node_a: 起始函数
             node_b: 目标函数
-            
+
         Returns:
             桥接信息或None
         """
+        # === 第1层：LLM源码分析 ===
+        if self.bridge_finder:
+            self.log_info(f"  → 尝试LLM源码分析: {node_a} -> {node_b}")
+
+            # 获取函数信息
+            func_a_ids = self.kg.get_function_ids(node_a)
+            func_b_ids = self.kg.get_function_ids(node_b)
+
+            if func_a_ids and func_b_ids:
+                func_a_info = self.kg.get_function_info(func_a_ids[0])
+                func_b_info = self.kg.get_function_info(func_b_ids[0])
+
+                if func_a_info and func_b_info:
+                    # 使用LLM分析源码
+                    bridge_result = self.bridge_finder.find_bridge_between_functions(
+                        func_a_info, func_b_info, self.source_reader, self.kg
+                    )
+
+                    if bridge_result:
+                        self.stats['fixed_by_source_analysis'] += 1
+                        self.log_success(f"✓ LLM源码分析成功: {bridge_result.get('bridge_type')}")
+                        return {
+                            'bridge_type': 'async',
+                            'bridge_entity': bridge_result.get('bridge_entity', ''),
+                            'method': 'llm_source_analysis',
+                            'confidence': bridge_result.get('confidence', 0.0),
+                            'explanation': bridge_result.get('explanation', '')
+                        }
+
+        # === 第2层：回退到Mock数据 ===
+        self.log_info(f"  → 回退到Mock数据检查")
         result = self.kg.check_async_pattern(node_a, node_b)
-        
+
         if result:
-            self.log_success(f"✓ 检测到异步调用: {result.get('init_func')}")
+            self.log_success(f"✓ 检测到异步调用(Mock): {result.get('init_func')}")
             return result
-        
+
         return None
     
     def _check_function_pointer_pattern(self, node_a: str, node_b: str) -> Optional[Dict]:
         """
         规则2: 检查函数指针调用模式（ops表）
-        
+
+        优先使用LLM源码分析，失败后回退到Mock数据
+
         Args:
             node_a: 起始函数
             node_b: 目标函数
-            
+
         Returns:
             桥接信息或None
         """
+        # === 第1层：LLM源码分析 ===
+        if self.bridge_finder:
+            self.log_info(f"  → 尝试LLM源码分析: {node_a} -> {node_b}")
+
+            # 获取函数信息
+            func_a_ids = self.kg.get_function_ids(node_a)
+            func_b_ids = self.kg.get_function_ids(node_b)
+
+            if func_a_ids and func_b_ids:
+                func_a_info = self.kg.get_function_info(func_a_ids[0])
+                func_b_info = self.kg.get_function_info(func_b_ids[0])
+
+                if func_a_info and func_b_info:
+                    # 使用LLM分析源码
+                    bridge_result = self.bridge_finder.find_bridge_between_functions(
+                        func_a_info, func_b_info, self.source_reader, self.kg
+                    )
+
+                    if bridge_result:
+                        self.stats['fixed_by_source_analysis'] += 1
+                        self.log_success(f"✓ LLM源码分析成功: {bridge_result.get('bridge_type')}")
+                        return {
+                            'bridge_type': 'function_pointer',
+                            'bridge_entity': bridge_result.get('bridge_entity', ''),
+                            'method': 'llm_source_analysis',
+                            'confidence': bridge_result.get('confidence', 0.0),
+                            'explanation': bridge_result.get('explanation', '')
+                        }
+
+        # === 第2层：回退到Mock数据 ===
+        self.log_info(f"  → 回退到Mock数据检查")
         result = self.kg.check_function_pointer_pattern(node_a, node_b)
-        
+
         if result:
-            self.log_success(f"✓ 检测到函数指针: {result.get('struct_name')}.{result.get('field_name')}")
+            self.log_success(f"✓ 检测到函数指针(Mock): {result.get('struct_name')}.{result.get('field_name')}")
             return result
-        
+
         return None
     
     def _segmented_search_and_stitch(
