@@ -23,7 +23,7 @@ class LLMAnalyzer:
             api_key=api_key,
             base_url=base_url
         )
-        self.model = "gpt-5-nano"  # 使用最便宜的模型
+        self.model = "gpt-4o-mini"  # 使用便宜的模型
         self.timeout = 180  # 超时时间（秒），考虑到冷启动可能需要较长时间
 
     def analyze_bug_log(self, bug_log: str, context: Optional[str] = None) -> Dict[str, List[str]]:
