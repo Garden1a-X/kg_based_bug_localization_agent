@@ -144,7 +144,7 @@ def build_call_graph(data, function_by_id):
     return dict(call_graph)
 
 
-def check_16_node_path(function_by_name, call_graph):
+def check_16_node_path(function_by_name, call_graph, all_relations, function_by_id):
     """检查16节点路径的连通性"""
     print("\n" + "=" * 80)
     print("检查16节点路径连通性")
@@ -219,7 +219,67 @@ def check_16_node_path(function_by_name, call_graph):
         for pos, caller, callee in unreachable_pairs:
             print(f"  [{pos:2d}→{pos+1:2d}] {caller} → {callee}")
 
+        # 检查这些节点对之间是否有其他类型的关系
+        print(f"\n🔍 检查不可达节点对的其他关系类型:")
+        check_alternative_relations(unreachable_pairs, function_by_name, all_relations, function_by_id)
+
     return reachable, unreachable
+
+
+def check_alternative_relations(unreachable_pairs, function_by_name, all_relations, function_by_id):
+    """检查不可达节点对之间的其他关系类型"""
+
+    # 构建ID到名称的反向映射
+    id_to_name = {func_id: func.get('name') for func_id, func in function_by_id.items()}
+
+    for pos, caller_name, callee_name in unreachable_pairs:
+        print(f"\n  [{pos:2d}→{pos+1:2d}] {caller_name} → {callee_name}:")
+
+        # 获取caller和callee的所有ID
+        caller_ids = [str(func.get('id')) for func in function_by_name.get(caller_name, [])]
+        callee_ids = [str(func.get('id')) for func in function_by_name.get(callee_name, [])]
+
+        if not caller_ids or not callee_ids:
+            print(f"    ⚠️  无法获取函数ID")
+            continue
+
+        # 查找这些ID之间的所有关系
+        relations_found = defaultdict(list)
+
+        for rel in all_relations:
+            head = str(rel.get('head', ''))
+            tail = str(rel.get('tail', ''))
+            rel_type = rel.get('type', 'UNKNOWN')
+
+            # 检查是否是caller到callee的关系
+            if head in caller_ids and tail in callee_ids:
+                relations_found[rel_type].append(rel)
+            # 也检查中间节点的可能性
+            elif head in caller_ids and id_to_name.get(tail):
+                # caller指向某个中间节点
+                intermediate = id_to_name.get(tail)
+                if intermediate and intermediate != caller_name and intermediate != callee_name:
+                    # 检查这个中间节点是否能到达callee
+                    if any(str(r.get('head')) == tail and str(r.get('tail')) in callee_ids
+                           for r in all_relations):
+                        relations_found[f'via_{intermediate}'].append({
+                            'type': rel_type,
+                            'intermediate': intermediate
+                        })
+
+        if relations_found:
+            print(f"    ✅ 找到其他关系:")
+            for rel_type, rels in relations_found.items():
+                if rel_type.startswith('via_'):
+                    intermediate = rel_type[4:]
+                    print(f"      - 通过中间节点 {intermediate}: {len(rels)} 条")
+                else:
+                    print(f"      - {rel_type}: {len(rels)} 条")
+                    if len(rels) <= 3:
+                        for rel in rels:
+                            print(f"        示例: {rel}")
+        else:
+            print(f"    ❌ 未找到任何直接关系")
 
 
 def check_relation_types(data):
@@ -331,7 +391,7 @@ def main():
 
     # 5. 检查16节点路径
     if function_by_name and call_graph:
-        check_16_node_path(function_by_name, call_graph)
+        check_16_node_path(function_by_name, call_graph, relations, function_by_id)
 
     print("\n" + "=" * 80)
     print("检查完成")
