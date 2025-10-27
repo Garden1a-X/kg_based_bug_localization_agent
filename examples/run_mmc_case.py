@@ -35,8 +35,9 @@ def create_llm_client():
 def run_mmc_case():
     """运行甲方MMC案例"""
 
-    # 甲方提供的错误日志
+    # 甲方提供的错误日志（3行简单日志）
     mmc_error_log = """
+ALL phases bad!
 mmc0: tuning execution failed: -1
 mmc0: error -1 whilst initialising MMC card
     """

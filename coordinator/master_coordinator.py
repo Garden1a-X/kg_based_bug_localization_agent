@@ -51,7 +51,11 @@ class MasterCoordinator:
         
         # 第1步：日志解析
         print_step(1, 4, "解析错误日志")
-        parsed_log = self.log_parser.execute(log_text)
+        # 检测是否是 MMC 日志
+        if 'mmc' in log_text.lower() or 'tuning' in log_text.lower():
+            parsed_log = self.log_parser.parse_mmc_log(log_text)
+        else:
+            parsed_log = self.log_parser.execute(log_text)
         self._display_parsed_log(parsed_log)
         
         # 第2步：实体定位
@@ -155,16 +159,19 @@ class MasterCoordinator:
         table = Table(title="日志解析结果")
         table.add_column("项目", style="cyan")
         table.add_column("内容", style="green")
-        
+
         table.add_row("错误消息", str(parsed.get('error_messages', [])))
         table.add_row("错误码", str(parsed.get('error_codes', [])))
         table.add_row("涉及函数", ", ".join(parsed.get('functions', [])))
-        
+
+        if 'key_functions' in parsed:
+            table.add_row("关键函数", ", ".join(parsed['key_functions']))
+
         if 'inferred_entry' in parsed:
             table.add_row("推断入口", parsed['inferred_entry'])
         if 'inferred_error_point' in parsed:
             table.add_row("推断错误点", parsed['inferred_error_point'])
-        
+
         console.print(table)
         console.print()
     
