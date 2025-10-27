@@ -17,7 +17,7 @@ class LLMAssistedLocalization:
         self,
         kg_interface: KnowledgeGraphInterface,
         llm_api_key: str = "",
-        llm_base_url: str = "http://10.88.3.81:8502"
+        llm_base_url: str = "http://10.12.208.86:8502"
     ):
         """
         初始化
@@ -251,7 +251,7 @@ def main():
     localizer = LLMAssistedLocalization(
         kg_interface=kg,
         llm_api_key="",  # 如果需要可以在这里填入
-        llm_base_url="http://10.88.3.81:8502"
+        llm_base_url="http://10.12.208.86:8502"
     )
 
     print("\n" + "="*80)

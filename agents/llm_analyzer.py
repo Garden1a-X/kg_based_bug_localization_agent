@@ -11,7 +11,7 @@ from openai import OpenAI
 class LLMAnalyzer:
     """使用LLM分析bug日志，提取可能的函数名"""
 
-    def __init__(self, api_key: str = "", base_url: str = "http://10.88.3.81:8502"):
+    def __init__(self, api_key: str = "", base_url: str = "http://10.12.208.86:8502"):
         """
         初始化LLM分析器
 
@@ -24,6 +24,7 @@ class LLMAnalyzer:
             base_url=base_url
         )
         self.model = "gpt-4"  # 可根据实际情况修改
+        self.timeout = 180  # 超时时间（秒），考虑到冷启动可能需要较长时间
 
     def analyze_bug_log(self, bug_log: str, context: Optional[str] = None) -> Dict[str, List[str]]:
         """
@@ -50,7 +51,8 @@ class LLMAnalyzer:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,  # 较低温度以获得更确定的输出
-                max_tokens=1000
+                max_tokens=1000,
+                timeout=self.timeout
             )
 
             # 提取回复内容
@@ -198,7 +200,8 @@ Important:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.5,
-                max_tokens=800
+                max_tokens=800,
+                timeout=self.timeout
             )
 
             content = response.choices[0].message.content.strip()
@@ -283,7 +286,7 @@ Consider:
 
 
 # 便捷函数
-def analyze_log_with_llm(bug_log: str, api_key: str = "", base_url: str = "http://10.88.3.81:8502") -> Dict[str, List[str]]:
+def analyze_log_with_llm(bug_log: str, api_key: str = "", base_url: str = "http://10.12.208.86:8502") -> Dict[str, List[str]]:
     """便捷函数：使用LLM分析bug日志"""
     analyzer = LLMAnalyzer(api_key=api_key, base_url=base_url)
     return analyzer.analyze_bug_log(bug_log)
@@ -293,7 +296,7 @@ def suggest_breakpoints_with_llm(
     start_func: str,
     end_func: str,
     api_key: str = "",
-    base_url: str = "http://10.88.3.81:8502"
+    base_url: str = "http://10.12.208.86:8502"
 ) -> List[str]:
     """便捷函数：使用LLM建议断点"""
     analyzer = LLMAnalyzer(api_key=api_key, base_url=base_url)
