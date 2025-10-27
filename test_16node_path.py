@@ -28,7 +28,9 @@ def test_16_node_path():
 
     # 1. 加载知识图谱
     print("\n[1/4] 加载知识图谱...")
-    kg = KnowledgeGraphInterface(data_dir="data")
+    # 使用和 run_mmc_case.py 一样的数据目录
+    data_dir = "/data/xuao/code_kg_search/linux_test/data"
+    kg = KnowledgeGraphInterface(data_dir=data_dir)
 
     # 2. 定义预期路径（16个节点）
     expected_path = [
@@ -92,8 +94,8 @@ def test_16_node_path():
         callees = kg.get_callees(caller, debug=False)
         is_reachable_direct = callee in callees
 
-        # 检查Mock间接调用
-        mock_indirect_callees = kg.get_mock_indirect_callees(caller)
+        # 检查Mock间接调用（使用私有方法 _find_indirect_callees）
+        mock_indirect_callees = kg._find_indirect_callees(caller)
         is_reachable_mock = any(c == callee for c, _ in mock_indirect_callees)
 
         is_reachable = is_reachable_direct or is_reachable_mock
@@ -120,9 +122,9 @@ def test_16_node_path():
     start_name = expected_path[0]
     end_name = expected_path[-1]
 
-    result = kg.bfs_with_indirect_calls(
-        start_func_name=start_name,
-        end_func_name=end_name,
+    result = kg.find_call_path_with_indirect(
+        start=start_name,
+        end=end_name,
         max_depth=20
     )
 
