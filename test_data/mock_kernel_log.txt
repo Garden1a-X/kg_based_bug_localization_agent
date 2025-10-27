@@ -1,0 +1,34 @@
+[    0.000000] Linux version 5.10.0 (user@host) (gcc version 9.3.0) #1 SMP
+[    0.001234] CPU: ARMv8 Processor [410fd034] revision 4
+[    1.234567] mmc0: Synopsys DesignWare Multimedia Card Interface Driver
+[    1.345678] dw_mmc_probe: initializing MMC host controller
+[    1.456789] dw_mci_pltfm_probe: platform device probe started
+[    1.567890] dw_mci_pltfm_register: registering platform device
+[    1.678901] dw_mci_probe: probing DW MMC device
+[    1.789012] dw_mci_parse_dt: parsing device tree properties
+[    1.890123] dw_mci_init_dma: initializing DMA channel
+[    2.001234] mmc_start_host: starting MMC host
+[    2.112345] mmc_power_up: powering up MMC device
+[    2.223456] mmc_rescan: rescanning for devices
+[    2.334567] mmc_rescan_try_freq: trying frequency 400000 Hz
+[    2.445678] mmc_attach_sdio: attempting SDIO card initialization
+[    2.556789] mmc_sdio_init_card: initializing SDIO card
+[    2.667890] mmc_sdio_init_uhs_card: initializing UHS-I card mode
+[    2.778901] mmc_execute_tuning: executing tuning sequence
+[    2.889012] dw_mci_execute_tuning: DW MMC controller tuning
+[    3.000123] dw_mci_hi3660_execute_tuning: HiSilicon Hi3660 specific tuning
+[    3.111234] mmc0: new ultra high speed SDIO card at address 0001
+[    3.222345] SDIO device detected successfully
+[    3.333456] mmc_attach_mmc: attempting MMC card initialization
+[    3.444567] mmc_init_card: initializing MMC card
+[    3.555678] mmc0: tuning execution failed with error -110
+[    3.666789] mmc0: tuning timeout occurred
+[    3.777890] dw_mci_hi3660_execute_tuning: ERROR - tuning failed
+[    3.888901] BUG: unable to complete MMC initialization
+[    3.999012] Call Trace:
+[    4.000123]  dw_mci_hi3660_execute_tuning+0x154/0x2a0
+[    4.001234]  dw_mci_execute_tuning+0x48/0x80
+[    4.002345]  mmc_execute_tuning+0xc4/0x120
+[    4.003456]  mmc_sdio_init_uhs_card+0x234/0x340
+[    4.004567]  mmc_attach_mmc+0x180/0x280
+[    4.005678]  mmc_rescan+0x2bc/0x3d0
