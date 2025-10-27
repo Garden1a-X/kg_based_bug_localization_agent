@@ -1113,6 +1113,51 @@ class KnowledgeGraphInterface:
     
     # ============ LLM辅助定位需要的方法 ============
 
+    def fuzzy_search_functions(self, keywords: List[str], max_results: int = 50) -> List[Dict]:
+        """
+        根据关键词模糊搜索函数
+
+        Args:
+            keywords: 关键词列表（如 ["tuning", "init", "mmc"]）
+            max_results: 最多返回多少个结果
+
+        Returns:
+            匹配的函数列表 [{"name": "func", "source_file": "...", "score": 2}, ...]
+            按匹配分数排序（分数=匹配的关键词数量）
+        """
+        if 'FUNCTION' not in self.entities:
+            return []
+
+        matches = []
+
+        # 遍历所有函数
+        for func_name, func_entity in self.entities['FUNCTION'].items():
+            # 计算匹配分数：看有多少个关键词出现在函数名中
+            score = 0
+            func_name_lower = func_name.lower()
+
+            for keyword in keywords:
+                if keyword.lower() in func_name_lower:
+                    score += 1
+
+            # 如果至少匹配一个关键词，加入结果
+            if score > 0:
+                result = {
+                    "name": func_name,
+                    "score": score,
+                    "id": func_entity.get('id')
+                }
+                # 添加source_file信息（如果有）
+                if 'source_file' in func_entity:
+                    result['source_file'] = func_entity['source_file']
+
+                matches.append(result)
+
+        # 按分数排序（分数高的在前）
+        matches.sort(key=lambda x: x['score'], reverse=True)
+
+        return matches[:max_results]
+
     def get_function_ids(self, func_name: str) -> List[str]:
         """
         获取函数名对应的所有ID（支持同名函数）

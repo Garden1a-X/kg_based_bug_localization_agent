@@ -30,6 +30,112 @@ class LLMAssistedLocalization:
         self.kg = kg_interface
         self.llm = LLMAnalyzer(api_key=llm_api_key, base_url=llm_base_url)
 
+    def localize_from_log_two_stage(self, bug_log: str) -> Dict:
+        """
+        两阶段方法：从bug日志定位问题函数
+
+        阶段1：LLM提取关键词
+        阶段2：图谱模糊搜索 → LLM选择最相关的函数
+
+        Args:
+            bug_log: bug日志内容
+
+        Returns:
+            {
+                "stage1_keywords": {...},  # 第一阶段提取的关键词
+                "stage2_candidates": [...],  # 图谱中的候选函数
+                "stage3_selected": {...},  # LLM选择的最终函数
+                "matched_functions": {...}  # 在KG中匹配到的函数详情
+            }
+        """
+        print("="*80)
+        print("阶段1: LLM提取关键词和上下文")
+        print("="*80)
+
+        # 阶段1：提取关键词
+        keywords_info = self.llm.extract_keywords_from_log(bug_log)
+
+        print(f"\n提取结果:")
+        print(f"  关键词: {keywords_info.get('keywords', [])}")
+        print(f"  错误类型: {keywords_info.get('error_type', 'unknown')}")
+        print(f"  子系统: {keywords_info.get('subsystem', 'unknown')}")
+        print(f"  操作: {keywords_info.get('operations', [])}")
+
+        print("\n" + "="*80)
+        print("阶段2: 在知识图谱中模糊搜索")
+        print("="*80)
+
+        # 阶段2：在图谱中模糊搜索
+        # 合并所有搜索词
+        search_keywords = (
+            keywords_info.get('keywords', []) +
+            keywords_info.get('operations', []) +
+            [keywords_info.get('subsystem', '')]
+        )
+        search_keywords = [k for k in search_keywords if k]  # 去除空字符串
+
+        print(f"\n使用搜索词: {search_keywords}")
+
+        candidates = self.kg.fuzzy_search_functions(search_keywords, max_results=100)
+
+        print(f"\n找到 {len(candidates)} 个候选函数")
+        if candidates:
+            print(f"\nTop 10 候选:")
+            for i, cand in enumerate(candidates[:10], 1):
+                print(f"  [{i}] {cand['name']} (score={cand['score']}, file={cand.get('source_file', 'N/A')[:60]}...)")
+
+        if not candidates:
+            print("\n❌ 未找到任何候选函数！")
+            return {
+                "stage1_keywords": keywords_info,
+                "stage2_candidates": [],
+                "stage3_selected": {},
+                "matched_functions": {}
+            }
+
+        print("\n" + "="*80)
+        print("阶段3: LLM从候选中选择最相关的函数")
+        print("="*80)
+
+        # 阶段3：LLM选择最相关的
+        selected = self.llm.select_relevant_functions(
+            bug_log=bug_log,
+            candidate_functions=candidates,
+            max_select=10
+        )
+
+        print(f"\nLLM选择结果:")
+        print(f"  起始函数: {selected.get('entry_functions', [])}")
+        print(f"  中间函数: {selected.get('intermediate_functions', [])}")
+        print(f"  错误函数: {selected.get('error_functions', [])}")
+        if selected.get('reasoning'):
+            print(f"\n  推理: {selected['reasoning']}")
+
+        # 在KG中匹配选中的函数
+        print("\n" + "="*80)
+        print("阶段4: 在知识图谱中验证选中的函数")
+        print("="*80)
+
+        matched_functions = self._search_functions_in_kg(selected)
+
+        print(f"\n匹配结果:")
+        for category, funcs in matched_functions.items():
+            if funcs:
+                print(f"\n  {category}:")
+                for func_name, func_ids in funcs.items():
+                    print(f"    {func_name}: 找到 {len(func_ids)} 个实例")
+                    for func_id in func_ids[:2]:  # 最多显示2个
+                        func_info = self.kg.get_function_info(func_id)
+                        if func_info:
+                            print(f"      - ID={func_id}, 文件: {func_info.get('source_file', 'N/A')[:80]}")
+
+        return {
+            "stage1_keywords": keywords_info,
+            "stage2_candidates": candidates[:20],  # 只保存前20个
+            "stage3_selected": selected,
+            "matched_functions": matched_functions
+        }
+
     def localize_from_log(self, bug_log: str, context: str = None) -> Dict:
         """
         从bug日志定位问题函数
@@ -230,61 +336,67 @@ def main():
 
     # 示例bug日志（甲方提供的三行报错）
     bug_log = """
-mmc0: Timeout waiting for hardware interrupt.
-mmc0: Controller tuning failed
-ERROR: __mmc_switch timeout!
+All phases bad!
+mmc0: tuning execution failed: -1
+mmc0: error -1 whilst initialising MMC card
     """
 
-    # 初始化知识图谱接口（使用Mock数据）
+    # 初始化知识图谱接口（使用真实图谱数据）
     print("初始化知识图谱...")
-    kg = KnowledgeGraphInterface(data_dir="data")
+    print("提示：使用真实图谱需要较长时间加载...")
+    kg = KnowledgeGraphInterface(data_dir="/data/xuao/code_kg_search/linux_test/data")
 
     # 初始化LLM辅助定位系统
-    print("初始化LLM辅助定位系统...")
+    print("\n初始化LLM辅助定位系统...")
     localizer = LLMAssistedLocalization(
         kg_interface=kg,
         llm_api_key="",  # 如果需要可以在这里填入
         llm_base_url="http://10.12.208.86:8502"
     )
 
+    print(f"  使用模型: {localizer.llm.model}")
+
     print("\n" + "="*80)
-    print("开始LLM辅助Bug定位")
+    print("开始两阶段LLM辅助Bug定位")
     print("="*80)
 
-    # 执行定位
-    result = localizer.localize_from_log(
-        bug_log=bug_log,
-        context="Linux kernel MMC/SD card driver subsystem"
-    )
+    # 执行两阶段定位
+    result = localizer.localize_from_log_two_stage(bug_log)
 
     # 保存结果
     output_file = "llm_localization_result.json"
     with open(output_file, 'w', encoding='utf-8') as f:
-        # 将结果序列化（去除不可序列化的部分）
+        # 序列化结果
         json_result = {
-            "llm_analysis": result["llm_analysis"],
+            "stage1_keywords": result["stage1_keywords"],
+            "stage2_candidates": result["stage2_candidates"],
+            "stage3_selected": result["stage3_selected"],
             "matched_functions": {
-                k: {fname: fids for fname, fids in v.items()}
+                k: {fname: list(fids) for fname, fids in v.items()}
                 for k, v in result["matched_functions"].items()
-            },
-            "call_chains": result["call_chains"]
+            }
         }
         json.dump(json_result, f, indent=2, ensure_ascii=False)
 
+    print(f"\n{'='*80}")
+    print(f"✅ 定位完成！")
+    print(f"{'='*80}")
     print(f"\n结果已保存到: {output_file}")
 
-    # 示例：使用LLM建议断点
-    print("\n" + "="*80)
-    print("示例：LLM建议断点")
-    print("="*80)
+    # 总结
+    print(f"\n期望定位到的函数:")
+    print(f"  - dw_mci_probe (初始化入口)")
+    print(f"  - dw_mci_init_slot (slot初始化)")
+    print(f"  - dw_mci_execute_tuning (tuning失败)")
 
-    breakpoints = localizer.suggest_breakpoints_with_llm(
-        start_function="dw_mci_probe",
-        end_function="dw_mci_execute_tuning",
-        knowledge="MMC controller driver initialization and tuning flow"
+    print(f"\n实际定位到的函数:")
+    all_selected = (
+        result["stage3_selected"].get("entry_functions", []) +
+        result["stage3_selected"].get("intermediate_functions", []) +
+        result["stage3_selected"].get("error_functions", [])
     )
-
-    print(f"\n验证通过的断点: {breakpoints}")
+    for func in all_selected:
+        print(f"  - {func}")
 
 
 if __name__ == "__main__":

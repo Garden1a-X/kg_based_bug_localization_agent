@@ -26,6 +26,177 @@ class LLMAnalyzer:
         self.model = "gpt-4o-mini"  # 使用便宜的模型
         self.timeout = 180  # 超时时间（秒），考虑到冷启动可能需要较长时间
 
+    def extract_keywords_from_log(self, bug_log: str) -> Dict[str, any]:
+        """
+        第一阶段：从bug日志中提取关键词和上下文信息
+
+        Args:
+            bug_log: bug日志内容
+
+        Returns:
+            {
+                "keywords": ["tuning", "init", ...],  # 关键操作词
+                "error_type": "initialization_failure",  # 错误类型
+                "subsystem": "mmc/sd_driver",  # 子系统
+                "operations": ["probe", "init", "tuning"]  # 可能的操作
+            }
+        """
+        prompt = f"""Analyze this Linux kernel bug log and extract key information for searching relevant functions.
+
+Bug Log:
+```
+{bug_log}
+```
+
+Extract the following information in JSON format:
+```json
+{{
+  "keywords": ["keyword1", "keyword2", ...],
+  "error_type": "brief_description_of_error",
+  "subsystem": "kernel_subsystem_name",
+  "operations": ["operation1", "operation2", ...]
+}}
+```
+
+Guidelines:
+- **keywords**: Extract important technical terms from the log (e.g., "tuning", "timeout", "initialising", "phases")
+- **error_type**: Classify the error (e.g., "timeout", "initialization_failure", "resource_allocation_failed")
+- **subsystem**: Identify the kernel subsystem (e.g., "mmc", "pci", "usb", "network")
+- **operations**: List probable operations involved (e.g., ["probe", "init", "read", "write", "tuning"])
+
+Keep it concise and focused on searchable terms.
+"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at analyzing Linux kernel logs and extracting searchable information."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=500,
+                timeout=self.timeout
+            )
+
+            content = response.choices[0].message.content.strip()
+
+            # 解析JSON
+            if "```json" in content:
+                json_start = content.find("```json") + 7
+                json_end = content.find("```", json_start)
+                json_str = content[json_start:json_end].strip()
+            elif "```" in content:
+                json_start = content.find("```") + 3
+                json_end = content.find("```", json_start)
+                json_str = content[json_start:json_end].strip()
+            else:
+                json_str = content
+
+            result = json.loads(json_str)
+            return result
+
+        except Exception as e:
+            print(f"LLM关键词提取失败: {e}")
+            # 返回空结果
+            return {
+                "keywords": [],
+                "error_type": "unknown",
+                "subsystem": "unknown",
+                "operations": []
+            }
+
+    def select_relevant_functions(
+        self,
+        bug_log: str,
+        candidate_functions: List[Dict],
+        max_select: int = 10
+    ) -> List[str]:
+        """
+        第二阶段：从候选函数中选择最相关的
+
+        Args:
+            bug_log: bug日志
+            candidate_functions: 候选函数列表 [{"name": "func1", "file": "..."}, ...]
+            max_select: 最多选择多少个
+
+        Returns:
+            选中的函数名列表
+        """
+        # 构建候选列表字符串
+        candidates_str = "\n".join([
+            f"  - {func['name']} (file: {func.get('source_file', 'unknown')})"
+            for func in candidate_functions[:100]  # 最多给LLM看100个
+        ])
+
+        prompt = f"""Given a Linux kernel bug log and a list of candidate functions from the codebase, select the most relevant functions that are likely involved in causing or handling this bug.
+
+Bug Log:
+```
+{bug_log}
+```
+
+Candidate Functions (from codebase):
+{candidates_str}
+
+Please select up to {max_select} most relevant functions and categorize them:
+
+Return in JSON format:
+```json
+{{
+  "entry_functions": ["func1", "func2"],
+  "intermediate_functions": ["func3"],
+  "error_functions": ["func4", "func5"],
+  "reasoning": "Brief explanation"
+}}
+```
+
+Guidelines:
+- **entry_functions**: Entry points (probe, init functions)
+- **intermediate_functions**: Functions in the execution path
+- **error_functions**: Functions directly related to the error
+- Only select functions from the candidate list provided
+- Prioritize functions whose names closely match the error context
+"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at selecting relevant kernel functions based on bug logs."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=800,
+                timeout=self.timeout
+            )
+
+            content = response.choices[0].message.content.strip()
+
+            # 解析JSON
+            if "```json" in content:
+                json_start = content.find("```json") + 7
+                json_end = content.find("```", json_start)
+                json_str = content[json_start:json_end].strip()
+            elif "```" in content:
+                json_start = content.find("```") + 3
+                json_end = content.find("```", json_start)
+                json_str = content[json_start:json_end].strip()
+            else:
+                json_str = content
+
+            result = json.loads(json_str)
+            return result
+
+        except Exception as e:
+            print(f"LLM函数选择失败: {e}")
+            return {
+                "entry_functions": [],
+                "intermediate_functions": [],
+                "error_functions": [],
+                "reasoning": ""
+            }
+
     def analyze_bug_log(self, bug_log: str, context: Optional[str] = None) -> Dict[str, List[str]]:
         """
         分析bug日志，提取可能相关的函数名
