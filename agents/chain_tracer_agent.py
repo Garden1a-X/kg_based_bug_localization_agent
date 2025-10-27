@@ -106,7 +106,7 @@ class CallChainTracerAgent(BaseAgent):
             return {
                 'path': result['path'],
                 'edges': result.get('edges', []),
-                'bridges': result.get('bridges', []),
+                'breaks': result.get('breaks', []),  # 统一使用 'breaks'
                 'method': 'segmented_search',
                 'stats': self.stats,
                 'success': True
@@ -122,6 +122,7 @@ class CallChainTracerAgent(BaseAgent):
                 return {
                     'path': result['path'],
                     'edges': result.get('edges', []),
+                    'breaks': result.get('breaks', []),
                     'method': 'llm_inference',
                     'stats': self.stats,
                     'success': True
@@ -132,6 +133,7 @@ class CallChainTracerAgent(BaseAgent):
         return {
             'path': [],
             'edges': [],
+            'breaks': [],
             'method': 'failed',
             'stats': self.stats,
             'success': False,
