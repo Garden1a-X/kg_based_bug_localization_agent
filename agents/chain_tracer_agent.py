@@ -66,9 +66,32 @@ class CallChainTracerAgent(BaseAgent):
 
         if result and result.get('path'):
             self.log_success(f"✓ 扩展搜索成功，路径长度: {len(result['path'])}")
+
+            # 统计间接调用数量
+            edges = result.get('edges', [])
+            indirect_count = sum(1 for e in edges if isinstance(e, dict) and e.get('type') == 'indirect')
+
+            # 构建 breaks 信息（用于显示间接调用位置）
+            breaks = []
+            for i, edge in enumerate(edges):
+                if isinstance(edge, dict) and edge.get('type') == 'indirect':
+                    breaks.append({
+                        'position': i,
+                        'from': result['path'][i],
+                        'to': result['path'][i + 1],
+                        'fixed': True,
+                        'method': 'mock_indirect_call',
+                        'bridge': edge.get('bridge', {})
+                    })
+
+            # 更新统计
+            self.stats['total_breaks'] = indirect_count
+            self.stats['fixed_by_rules'] = indirect_count
+
             return {
                 'path': result['path'],
                 'edges': result.get('edges', []),
+                'breaks': breaks,
                 'method': 'extended_search',
                 'stats': self.stats,
                 'success': True
