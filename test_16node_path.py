@@ -28,10 +28,7 @@ def test_16_node_path():
 
     # 1. 加载知识图谱
     print("\n[1/4] 加载知识图谱...")
-    kg = KnowledgeGraphInterface(
-        entity_json_path="data/temp_en.json",
-        relation_json_path="data/relations.json"
-    )
+    kg = KnowledgeGraphInterface(data_dir="data")
 
     # 2. 定义预期路径（16个节点）
     expected_path = [
