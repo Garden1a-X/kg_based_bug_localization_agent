@@ -1,34 +1,67 @@
 # Bug定位Agent框架
 
-基于知识图谱和LLM的C代码Bug定位框架
+基于知识图谱和LLM的C代码Bug定位框架，专注于从错误日志追踪到完整调用链。
 
-## 🎯 功能特性
+## 🎯 核心功能
 
-- **日志解析**: 从错误日志中提取结构化信息
-- **实体定位**: 在知识图谱中定位相关函数
-- **调用链追踪**: 构建从入口到错误点的完整调用链
-- **断点修复**: 分层降级策略修复调用链断点
-  - 第1层: 图谱直接查询 (90%情况)
-  - 第2层: 专家规则 (9%情况) - 异步调用、函数指针等
-  - 第3层: LLM兜底 (1%情况) - 处理未知模式
-- **灵活数据源**: 支持JSON格式知识图谱，无需数据库
+### 1. 端到端调用链追踪
+从简单的错误日志（3行）自动推断出完整的16节点调用链，包括：
+- ✅ 日志解析：从错误信息提取关键函数
+- ✅ 实体定位：在知识图谱中精确定位函数
+- ✅ 路径搜索：支持直接调用和间接调用（异步、函数指针）
+- ✅ 断点修复：4层降级策略确保链路完整
+
+### 2. 分层降级策略
+- **第1层：扩展搜索**（直接CALLS + 间接调用Mock）- 当前实现
+- **第2层：分段搜索+拼接** - 框架已就绪
+- **第3层：LLM推理** - 框架已就绪（待接入LLM）
+- **第4层：用户交互** - 框架已就绪
+
+### 3. 间接调用支持
+- ✅ 异步调用（work_struct工作队列）
+- ✅ 函数指针（ops操作表）
+- ✅ 同名函数多ID支持（声明+实现）
+
+## 📊 实现状态
+
+### ✅ v1.0 - MVP版本（当前）
+- [x] JSON格式知识图谱接口（无需Neo4j）
+- [x] 完整的Agent架构（LogParser, EntityLocator, CallChainTracer）
+- [x] 主协调器（MasterCoordinator）
+- [x] 支持16节点调用链 + 4个间接调用断点
+- [x] Mock间接调用数据（临时方案）
+- [x] 端到端示例：MMC案例
+
+### 🚧 v2.0 - LLM增强版（规划中）
+- [ ] 基于图谱PRINT关系的日志映射
+- [ ] LLM动态断点修复（替代Mock）
+- [ ] Top-K路径返回
+- [ ] LLM指导的搜索剪枝
+- [ ] 根因分析和修复建议
 
 ## 📁 项目结构
 
 ```
-bug_localization_agent/
-├── config/                 # 配置模块
-├── data/                   # 数据层（图谱接口）
+kg_based_bug_localization_agent/
 ├── agents/                 # Agent层
-│   ├── log_parser_agent.py         # 日志解析
-│   ├── entity_locator_agent.py     # 实体定位
-│   └── chain_tracer_agent.py       # 调用链追踪
+│   ├── base_agent.py              # Agent基类
+│   ├── log_parser_agent.py        # 日志解析
+│   ├── entity_locator_agent.py    # 实体定位
+│   └── chain_tracer_agent.py      # 调用链追踪（4层降级）
 ├── coordinator/            # 协调层
-│   └── master_coordinator.py       # 主协调器
+│   └── master_coordinator.py      # 主协调器
+├── data/                   # 数据层
+│   ├── kg_interface.py            # 知识图谱接口
+│   └── mock_indirect_calls.py     # Mock间接调用（临时）
+├── llm/                    # LLM层（预留）
+│   └── openai_client.py           # LLM客户端
 ├── utils/                  # 工具函数
-├── tests/                  # 测试
-├── examples/               # 示例
-└── output/                 # 输出结果
+│   └── logger.py                  # 日志工具
+├── examples/               # 示例脚本
+│   └── run_mmc_case.py            # MMC案例（3行日志→16节点）
+├── tests/                  # 测试脚本
+│   └── verify_16node_path.py      # 验证16节点路径
+└── output/                 # 输出结果（自动生成）
 ```
 
 ## 🚀 快速开始
@@ -36,7 +69,11 @@ bug_localization_agent/
 ### 1. 安装依赖
 
 ```bash
-# 创建虚拟环境（推荐）
+# 克隆项目
+git clone <repository_url>
+cd kg_based_bug_localization_agent
+
+# 创建虚拟环境
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
 # 或
@@ -48,52 +85,72 @@ pip install -r requirements.txt
 
 ### 2. 准备数据
 
-将知识图谱数据放在指定目录，支持两种格式：
+将知识图谱数据放在指定目录：
 
-**格式1：合并格式（推荐）**
 ```
 /data/xuao/code_kg_search/linux_test/data/
-├── temp_en.json      # 实体数据
-└── relations.json    # 关系数据
+├── temp_en.json      # 实体数据（Function, Struct等）
+└── relations.json    # 关系数据（CALLS, DECL_IMPL等）
 ```
 
-**格式2：分散格式**
-```
-data/
-├── entity_function.json
-├── entity_struct.json
-├── relation_calls.json
-└── ...
-```
-
-### 3. 配置环境（可选）
-
-设置数据目录环境变量：
-
+或设置环境变量：
 ```bash
 export KG_DATA_DIR=/path/to/your/data
 ```
 
-或者在代码中直接指定路径（参见示例代码）。
-
-### 4. 运行示例
+### 3. 运行示例
 
 ```bash
-# 运行甲方MMC案例
+# 运行MMC案例（从3行日志到16节点调用链）
 python examples/run_mmc_case.py
-
-# 运行自定义日志
-python examples/run_mmc_case.py path/to/your/log.txt
 ```
 
-预期输出：
+**输入**（3行简单日志）：
 ```
-✓ 已加载知识图谱
-✓ 解析错误日志
-✓ 在图谱中定位实体
-✓ 追踪调用链
-✓ 生成分析报告
+ALL phases bad!
+mmc0: tuning execution failed: -1
+mmc0: error -1 whilst initialising MMC card
 ```
+
+**输出**（16节点完整调用链 + 4个间接调用）：
+```
+✓ 扩展搜索成功，路径长度: 16
+
+调用路径:
+  0. dw_mci_pltfm_probe
+  1. dw_mci_pltfm_register
+  2. dw_mci_probe
+  3. dw_mci_init_slot
+  4. mmc_add_host (桥接 - 函数指针)
+  5. mmc_start_host
+  6. _mmc_detect_change
+  7. mmc_schedule_delayed_work
+  8. mmc_rescan (桥接 - 异步调用)
+  9. mmc_rescan_try_freq
+  10. mmc_attach_sd
+  11. mmc_sd_init_card
+  12. mmc_sd_init_uhs_card
+  13. mmc_execute_tuning
+  14. dw_mci_execute_tuning (桥接 - 函数指针)
+  15. dw_mci_hi3660_execute_tuning (桥接 - 函数指针)
+
+统计信息:
+  节点数: 16
+  间接调用数: 4
+```
+
+### 4. 验证测试
+
+```bash
+# 运行16节点路径验证脚本
+python tests/verify_16node_path.py
+```
+
+这个脚本会：
+- 检查16个预期节点是否都存在于图谱
+- 检查15个相邻节点对的连通性
+- 验证BFS能否找到完整路径
+- 统计间接调用数
 
 ## 📖 使用方法
 
@@ -102,217 +159,233 @@ python examples/run_mmc_case.py path/to/your/log.txt
 ```python
 from coordinator.master_coordinator import MasterCoordinator
 
-# 创建协调器（可选指定数据目录）
-coordinator = MasterCoordinator(data_dir="/path/to/your/data")
+# 创建协调器
+coordinator = MasterCoordinator(
+    data_dir="/data/xuao/code_kg_search/linux_test/data"
+)
 
-# 处理日志
+# 方式1：自动推断起点和终点
 error_log = """
+ALL phases bad!
 mmc0: tuning execution failed: -1
 mmc0: error -1 whilst initialising MMC card
 """
 
 result = coordinator.process(error_log)
 
-# 查看结果
-print(f"成功: {result['success']}")
-print(f"调用链长度: {result['chain']['length']}")
-print(f"路径: {result['chain']['path']}")
-
-coordinator.close()
-```
-
-### 方式2: 指定起点和终点
-
-```python
+# 方式2：指定起点和终点
 result = coordinator.process_with_specific_functions(
     error_log,
     start_func='dw_mci_pltfm_probe',
     end_func='dw_mci_execute_tuning'
 )
+
+# 查看结果
+print(f"成功: {result['success']}")
+print(f"路径长度: {len(result['chain']['path'])}")
+print(f"间接调用数: {len(result['chain']['breaks'])}")
+
+coordinator.close()
 ```
 
-### 方式3: 单独使用Agent
+### 方式2: 单独使用Agent
 
 ```python
-from data.kg_interface import create_kg_interface, KnowledgeGraphInterface
+from data.kg_interface import KnowledgeGraphInterface
 from agents.log_parser_agent import LogParserAgent
 from agents.entity_locator_agent import EntityLocatorAgent
 from agents.chain_tracer_agent import CallChainTracerAgent
 
-# 创建图谱接口
-kg = KnowledgeGraphInterface(data_dir="/path/to/your/data")
-# 或使用便捷函数
-# kg = create_kg_interface("/path/to/your/data")
-
-# 使用各个Agent
+# 初始化
+kg = KnowledgeGraphInterface(data_dir="/path/to/data")
 log_parser = LogParserAgent()
 entity_locator = EntityLocatorAgent(kg)
 chain_tracer = CallChainTracerAgent(kg)
 
-# 执行分析
-parsed = log_parser.execute(error_log)
-entities = entity_locator.execute(parsed)
-chain = chain_tracer.execute(entities['start_entity'], entities['end_entity'])
+# 执行流程
+parsed_log = log_parser.parse_mmc_log(error_log)
+entities = entity_locator.execute(parsed_log)
+chain = chain_tracer.execute(
+    entities['start_entity'],
+    entities['end_entity'],
+    max_depth=20
+)
 
 kg.close()
 ```
 
-## 🔧 图谱接口API
+## 🔧 核心API
 
-### 基础查询
+### KnowledgeGraphInterface
 
 ```python
 # 查找函数
 func = kg.find_function('dw_mci_probe')
 
-# 检查调用关系
-has_call = kg.has_direct_call('func_a', 'func_b')
+# 获取调用关系
+callees = kg.get_callees('dw_mci_probe')  # 支持多ID同名函数
+callers = kg.get_callers('mmc_add_host')
 
-# 查找调用路径
-path = kg.find_call_path('start_func', 'end_func', max_depth=10)
-```
+# 查找路径（支持间接调用）
+path = kg.find_call_path_with_indirect(
+    start='dw_mci_pltfm_probe',
+    end='dw_mci_hi3660_execute_tuning',
+    max_depth=20
+)
 
-### 断点修复查询
-
-```python
-# 检查异步调用模式
-async_bridge = kg.check_async_pattern('func_a', 'func_b')
-
-# 检查函数指针模式
-fp_bridge = kg.check_function_pointer_pattern('func_a', 'func_b')
-```
-
-### 上下文查询
-
-```python
-# 获取函数完整上下文
+# 获取函数上下文
 context = kg.get_function_context('dw_mci_probe')
-# 包含: info, code, callers, callees, variables, related_structs
+# 返回: info, code, callers, callees, variables, related_structs
 ```
 
-## 📊 输出格式
+### CallChainTracerAgent
 
-分析结果JSON格式:
+```python
+# 执行4层降级搜索
+chain = tracer.execute(
+    start_entity={'name': 'dw_mci_pltfm_probe', ...},
+    end_entity={'name': 'dw_mci_hi3660_execute_tuning', ...},
+    max_depth=20
+)
 
-```json
+# 返回格式
 {
-  "success": true,
-  "parsed_log": {
-    "error_messages": ["tuning execution failed: -1"],
-    "functions": ["dw_mci_execute_tuning"],
-    "inferred_entry": "dw_mci_pltfm_probe",
-    "inferred_error_point": "dw_mci_execute_tuning"
-  },
-  "entities": {
-    "start_entity": {"name": "dw_mci_pltfm_probe", "file": "..."},
-    "end_entity": {"name": "dw_mci_execute_tuning", "file": "..."}
-  },
-  "chain": {
-    "path": ["func1", "func2", "func3", ...],
-    "length": 8,
-    "breaks": [
-      {
-        "position": 2,
-        "from": "func2",
-        "to": "func3",
-        "fixed": true,
-        "method": "rule",
-        "bridge": {"bridge_type": "async", ...}
-      }
+    'path': ['func1', 'func2', ...],       # 16个节点
+    'edges': [                              # 边类型
+        'direct',                           # 直接调用
+        {'type': 'indirect', 'bridge': ...} # 间接调用
     ],
-    "stats": {
-      "total_breaks": 2,
-      "fixed_by_rules": 2,
-      "fixed_by_llm": 0,
-      "unfixed": 0
-    }
-  }
+    'breaks': [                             # 断点信息
+        {
+            'position': 4,
+            'from': 'dw_mci_init_slot',
+            'to': 'mmc_add_host',
+            'fixed': True,
+            'method': 'mock_indirect_call',
+            'bridge': {'bridge_type': 'function_pointer', ...}
+        }
+    ],
+    'method': 'extended_search',            # 使用的层级
+    'success': True
 }
 ```
+
+## 📊 数据格式
+
+### 实体文件（temp_en.json）
+```json
+{
+  "FUNCTION": [
+    {
+      "id": "1548090",
+      "name": "dw_mci_pltfm_probe",
+      "type": "FUNCTION",
+      "source_file": "drivers/mmc/host/dw_mmc-pltfm.c",
+      "code": "..."
+    }
+  ],
+  "STRUCT": [...]
+}
+```
+
+### 关系文件（relations.json）
+```json
+{
+  "CALLS": [
+    {
+      "head": "1548090",      // caller ID
+      "tail": "1548105",      // callee ID
+      "type": "CALLS"
+    }
+  ],
+  "DECL_IMPL": [             // 函数声明-实现映射
+    {
+      "head": "1548105",     // 声明ID
+      "tail": "1548089",     // 实现ID
+      "type": "DECL_IMPL"
+    }
+  ]
+}
+```
+
+### Mock间接调用（临时）
+```python
+# data/mock_indirect_calls.py
+MOCK_ASYNC_CALLS = {
+    ("mmc_schedule_delayed_work", "mmc_rescan"): {
+        "bridge_type": "async",
+        "bridge_entity": "work_struct.func",
+        ...
+    }
+}
+
+MOCK_FUNCTION_POINTER_CALLS = {
+    ("mmc_execute_tuning", "dw_mci_execute_tuning"): {
+        "bridge_type": "function_pointer",
+        "bridge_entity": "mmc_host_ops.execute_tuning",
+        ...
+    }
+}
+```
+
+**注意**：Mock数据是临时方案，等图谱完善ASSIGNED_TO关系后将被移除。
 
 ## 🧪 测试
 
 ```bash
-# 运行所有测试
-pytest tests/
+# 验证16节点路径
+python tests/verify_16node_path.py
 
-# 运行特定测试
-pytest tests/test_connections.py
-pytest tests/test_agents.py
-
-# 带覆盖率
-pytest --cov=. tests/
+# 运行主程序
+python examples/run_mmc_case.py
 ```
 
-## 📝 开发计划
+## ⚙️ 配置
 
-### ✅ MVP版本 (已完成)
-- [x] 项目结构
-- [x] 图谱接口
-- [x] 日志解析Agent
-- [x] 实体定位Agent
-- [x] 调用链追踪Agent（含断点修复）
-- [x] 主协调器
-- [x] 示例脚本
+### 环境变量
+- `KG_DATA_DIR`: 数据目录（默认：`/data/xuao/code_kg_search/linux_test/data`）
+- `OPENAI_API_KEY`: OpenAI API密钥（可选，用于LLM功能）
 
-### 🚧 V1.0 (进行中)
-- [ ] 更多专家规则（回调、事件等）
-- [ ] LLM集成（需要Anthropic API key）
-- [ ] 性能优化
-- [ ] 更多测试用例
+### 可调参数
+- `max_depth`: 最大搜索深度（默认20）
+- `max_same_name_funcs`: 同名函数ID数量警告阈值
 
-### 📅 V2.0 (计划中)
-- [ ] 根因分析Agent
-- [ ] 修复建议Agent
-- [ ] Web界面
-- [ ] 历史案例库
+## 🔮 下一步计划
 
-## ⚙️ 配置说明
+### Phase 1: 基础增强（待实现）
+1. **图谱PRINT关系映射**：使用图谱的日志信息替代Mock规则
+2. **Top-K路径返回**：返回多条候选路径供选择
 
-### 必需配置
+### Phase 2: LLM增强（待实现）
+3. **LLM断点修复**：动态推理间接调用，替代Mock数据
+4. **LLM指导剪枝**：利用LLM知识优化搜索方向
 
-- `KG_DATA_DIR`: 知识图谱数据目录（默认：`/data/xuao/code_kg_search/linux_test/data`）
+### Phase 3: 高级功能（规划中）
+5. 根因分析Agent
+6. 修复建议Agent
+7. Web可视化界面
 
-### 可选配置
+## 🎯 技术亮点
 
-- `ANTHROPIC_API_KEY`: Claude API密钥（用于LLM兜底，可选）
-- `LLM_CONFIDENCE_THRESHOLD`: LLM置信度阈值（默认0.6）
-- `MAX_CHAIN_DEPTH`: 最大搜索深度（默认15）
-- `LOG_LEVEL`: 日志级别（默认INFO）
+1. **无需数据库**：纯JSON存储，轻量级部署
+2. **多ID同名函数**：正确处理C语言的函数声明和实现
+3. **间接调用支持**：识别异步和函数指针调用
+4. **分层降级**：从简单到复杂，确保鲁棒性
+5. **端到端**：3行日志 → 16节点完整调用链
 
-### 数据格式说明
-
-**实体文件（temp_en.json）格式：**
-```json
-{
-  "Function": [
-    {"name": "dw_mci_probe", "file": "drivers/mmc/host/dw_mmc.c", ...},
-    ...
-  ],
-  "Struct": [...],
-  ...
-}
-```
-
-**关系文件（relations.json）格式：**
-```json
-{
-  "CALLS": [
-    {"source": "func_a", "target": "func_b"},
-    ...
-  ],
-  ...
-}
-```
-
-## 🤝 贡献
+## 🤝 贡献指南
 
 欢迎提交Issue和Pull Request！
+
+当前优先级：
+1. 确认图谱PRINT关系格式
+2. 实现Top-K路径返回
+3. 设计LLM Prompt模板
 
 ## 📄 许可
 
 MIT License
 
-## 📞 联系
+## 📞 联系方式
 
-如有问题，请联系项目维护者。
+如有问题或建议，请通过Issue联系。

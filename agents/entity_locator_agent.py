@@ -47,7 +47,6 @@ class EntityLocatorAgent(BaseAgent):
                 entity = self._locate_function(func_name)
                 if entity:
                     key_entities.append(entity)
-                    self.log_info(f"定位到关键函数: {func_name}")
 
             if key_entities:
                 result['intermediate_entities'] = key_entities
