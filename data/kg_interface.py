@@ -1111,8 +1111,52 @@ class KnowledgeGraphInterface:
         
         return list(struct_names)
     
+    # ============ LLM辅助定位需要的方法 ============
+
+    def get_function_ids(self, func_name: str) -> List[str]:
+        """
+        获取函数名对应的所有ID（支持同名函数）
+
+        Args:
+            func_name: 函数名
+
+        Returns:
+            函数ID列表
+        """
+        return self.func_name_to_ids.get(func_name, [])
+
+    def get_function_info(self, func_id: str) -> Optional[Dict]:
+        """
+        通过ID获取函数信息
+
+        Args:
+            func_id: 函数ID
+
+        Returns:
+            函数实体信息，如果不存在返回None
+        """
+        entity = self.entity_by_id.get(str(func_id))
+        if entity and entity.get('type') == 'FUNCTION':
+            return entity
+        return None
+
+    def get_function_name(self, func_id: str) -> Optional[str]:
+        """
+        通过ID获取函数名
+
+        Args:
+            func_id: 函数ID
+
+        Returns:
+            函数名，如果不存在返回None
+        """
+        entity = self.entity_by_id.get(str(func_id))
+        if entity:
+            return entity.get('name')
+        return None
+
     # ============ 统计信息 ============
-    
+
     def get_call_frequency(self, func_name: str) -> int:
         """获取函数被调用的次数"""
         return len(self.get_callers(func_name))
