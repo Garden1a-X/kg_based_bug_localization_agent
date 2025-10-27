@@ -15,14 +15,13 @@ TODO: 临时模块，等知识图谱修复 ASSIGNED_TO 关系后删除
 # 异步调用关系（工作队列）
 # 格式：{(caller_func, callee_func): bridge_info}
 MOCK_ASYNC_CALLS = {
-    # mmc_start_host 异步调度 mmc_rescan
-    # 注：真实路径是 mmc_start_host → _mmc_detect_change → mmc_schedule_delayed_work → mmc_rescan
-    # 但为了简化，直接建立起止点的间接关系
-    ("mmc_start_host", "mmc_rescan"): {
+    # [位置8] mmc_schedule_delayed_work 异步调度 mmc_rescan
+    # 这是16节点完整路径中的真实异步调用断点
+    ("mmc_schedule_delayed_work", "mmc_rescan"): {
         "bridge_type": "async",
         "bridge_entity": "work_struct.func",
         "init_func": "INIT_DELAYED_WORK",
-        "description": "mmc_start_host 通过 work_struct 异步调度 mmc_rescan（跳过中间节点）"
+        "description": "mmc_schedule_delayed_work 通过 work_struct 异步调度 mmc_rescan"
     },
     # 可以添加更多已知的异步调用关系
 }
@@ -30,18 +29,17 @@ MOCK_ASYNC_CALLS = {
 # 函数指针调用关系（ops 表）
 # 格式：{(caller_func, callee_func): bridge_info}
 MOCK_FUNCTION_POINTER_CALLS = {
-    # dw_mci_probe → mmc_start_host（函数指针/ops调用）
-    # 注：真实路径是 dw_mci_probe → dw_mci_init_slot → mmc_add_host → mmc_start_host
-    # 但为了简化，直接建立起止点的间接关系
-    ("dw_mci_probe", "mmc_start_host"): {
+    # [位置4] dw_mci_init_slot → mmc_add_host（意外断裂，可能是函数指针/直接调用缺失）
+    # 这是16节点完整路径中的断裂点，图谱中可能缺失此关系
+    ("dw_mci_init_slot", "mmc_add_host"): {
         "bridge_type": "function_pointer",
-        "bridge_entity": "mmc_host_ops.start",
-        "struct_name": "mmc_host_ops",
-        "field_name": "start",
-        "description": "dw_mci_probe 通过 mmc_host_ops.start 调用 mmc_start_host（跳过中间节点）"
+        "bridge_entity": "mmc_alloc_host -> mmc_add_host",
+        "struct_name": "mmc_host",
+        "field_name": "add_host",
+        "description": "dw_mci_init_slot 调用 mmc_add_host（图谱中缺失的调用关系）"
     },
 
-    # mmc_execute_tuning → dw_mci_execute_tuning（函数指针/ops调用）
+    # [位置14] mmc_execute_tuning → dw_mci_execute_tuning（函数指针/ops调用）
     ("mmc_execute_tuning", "dw_mci_execute_tuning"): {
         "bridge_type": "function_pointer",
         "bridge_entity": "mmc_host_ops.execute_tuning",
@@ -50,7 +48,7 @@ MOCK_FUNCTION_POINTER_CALLS = {
         "description": "host->ops->execute_tuning() 指向 dw_mci_execute_tuning"
     },
 
-    # dw_mci_execute_tuning → dw_mci_hi3660_execute_tuning（函数指针/平台特定ops）
+    # [位置15] dw_mci_execute_tuning → dw_mci_hi3660_execute_tuning（函数指针/平台特定ops）
     ("dw_mci_execute_tuning", "dw_mci_hi3660_execute_tuning"): {
         "bridge_type": "function_pointer",
         "bridge_entity": "dw_mci_drv_data.execute_tuning",
