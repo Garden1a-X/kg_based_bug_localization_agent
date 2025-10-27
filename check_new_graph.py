@@ -250,29 +250,88 @@ def check_relation_types(data):
         print(f"  ⚠️  未找到PRINT/LOG相关关系")
 
 
+def load_entities(entity_file):
+    """加载实体文件"""
+    print("=" * 80)
+    print("加载实体文件")
+    print("=" * 80)
+
+    print(f"\n文件: {entity_file}")
+    file_size = Path(entity_file).stat().st_size
+    print(f"文件大小: {file_size / 1024 / 1024:.2f} MB")
+
+    print("\n加载数据...")
+    with open(entity_file, 'r', encoding='utf-8') as f:
+        entities = json.load(f)
+
+    return entities
+
+
+def load_relations(relation_file):
+    """加载关系文件"""
+    print("\n" + "=" * 80)
+    print("加载关系文件")
+    print("=" * 80)
+
+    print(f"\n文件: {relation_file}")
+    file_size = Path(relation_file).stat().st_size
+    print(f"文件大小: {file_size / 1024 / 1024:.2f} MB")
+
+    print("\n加载数据...")
+    with open(relation_file, 'r', encoding='utf-8') as f:
+        relations = json.load(f)
+
+    print(f"关系数量: {len(relations)}")
+
+    # 统计关系类型
+    type_counts = defaultdict(int)
+    for rel in relations:
+        rel_type = rel.get('type', 'UNKNOWN')
+        type_counts[rel_type] += 1
+
+    print(f"\n关系类型分布:")
+    for rel_type, count in sorted(type_counts.items(), key=lambda x: x[1], reverse=True)[:10]:
+        print(f"  {rel_type}: {count:,}")
+
+    return relations
+
+
 def main():
-    if len(sys.argv) > 1:
-        graph_file = sys.argv[1]
+    if len(sys.argv) > 2:
+        entity_file = sys.argv[1]
+        relation_file = sys.argv[2]
+    elif len(sys.argv) > 1:
+        # 只提供关系文件，尝试在同目录找实体文件
+        relation_file = sys.argv[1]
+        data_dir = Path(relation_file).parent
+        entity_file = data_dir / "temp_en.json"
+        print(f"自动查找实体文件: {entity_file}")
     else:
-        graph_file = "/data/xuao/code_kg_search/linux_test/data/all_relation.json"
+        # 使用默认路径
+        data_dir = Path("/data/xuao/code_kg_search/linux_test/data")
+        entity_file = data_dir / "temp_en.json"
+        relation_file = data_dir / "all_relation.json"
 
-    print(f"检查图谱文件: {graph_file}\n")
+    print(f"实体文件: {entity_file}")
+    print(f"关系文件: {relation_file}\n")
 
-    # 1. 检查格式
-    data = check_new_graph_format(graph_file)
+    # 1. 加载实体
+    entities = load_entities(entity_file)
 
-    # 2. 建立索引
-    function_by_name, function_by_id = build_function_index(data)
+    # 2. 加载关系
+    relations = load_relations(relation_file)
 
-    # 3. 建立调用图
-    call_graph = build_call_graph(data, function_by_id)
+    # 3. 建立函数索引
+    function_by_name, function_by_id = build_function_index(entities)
 
-    # 4. 检查16节点路径
+    # 4. 建立调用图
+    # 需要从relations列表中筛选CALLS关系
+    calls_data = {'CALLS': [r for r in relations if r.get('type') == 'CALLS']}
+    call_graph = build_call_graph(calls_data, function_by_id)
+
+    # 5. 检查16节点路径
     if function_by_name and call_graph:
         check_16_node_path(function_by_name, call_graph)
-
-    # 5. 检查关系类型
-    check_relation_types(data)
 
     print("\n" + "=" * 80)
     print("检查完成")
