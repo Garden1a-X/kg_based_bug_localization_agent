@@ -32,9 +32,20 @@
 - [x] Mock间接调用数据（临时方案）
 - [x] 端到端示例：MMC案例
 
-### 🚧 v2.0 - LLM增强版（规划中）
+### 🔬 v1.5 - LLM源码分析（已集成，待启用）
+- [x] LLM源码分析模块（SourceCodeBridgeFinder）
+- [x] 源码读取工具（SourceCodeReader）
+- [x] 异步调用模式识别（work_struct, delayed_work）
+- [x] 函数指针模式识别（ops table, callbacks）
+- [x] 分层回退机制（LLM优先，Mock兜底）
+- [x] 独立测试脚本（test_integrated_source_analysis.py）
+- [ ] 集成到主流程（待完善）
+
+**说明**：LLM源码分析功能已完全集成并通过测试，能够自动分析C源码发现异步调用和函数指针连接。目前作为独立模块提供，可通过测试脚本验证效果。后续将集成到主流程替代Mock数据。
+
+### 🚧 v2.0 - 完整LLM增强版（规划中）
+- [ ] LLM集成到主流程（替代Mock数据）
 - [ ] 基于图谱PRINT关系的日志映射
-- [ ] LLM动态断点修复（替代Mock）
 - [ ] Top-K路径返回
 - [ ] LLM指导的搜索剪枝
 - [ ] 根因分析和修复建议
@@ -43,25 +54,32 @@
 
 ```
 kg_based_bug_localization_agent/
-├── agents/                 # Agent层
-│   ├── base_agent.py              # Agent基类
-│   ├── log_parser_agent.py        # 日志解析
-│   ├── entity_locator_agent.py    # 实体定位
-│   └── chain_tracer_agent.py      # 调用链追踪（4层降级）
-├── coordinator/            # 协调层
-│   └── master_coordinator.py      # 主协调器
-├── data/                   # 数据层
-│   ├── kg_interface.py            # 知识图谱接口
-│   └── mock_indirect_calls.py     # Mock间接调用（临时）
-├── llm/                    # LLM层（预留）
-│   └── openai_client.py           # LLM客户端
-├── utils/                  # 工具函数
-│   └── logger.py                  # 日志工具
-├── examples/               # 示例脚本
-│   └── run_mmc_case.py            # MMC案例（3行日志→16节点）
-├── tests/                  # 测试脚本
-│   └── verify_16node_path.py      # 验证16节点路径
-└── output/                 # 输出结果（自动生成）
+├── agents/                          # Agent层
+│   ├── base_agent.py                    # Agent基类
+│   ├── log_parser_agent.py              # 日志解析
+│   ├── entity_locator_agent.py          # 实体定位
+│   ├── chain_tracer_agent.py            # 调用链追踪（4层降级）
+│   ├── source_code_bridge_finder.py     # LLM源码分析桥接查找器
+│   └── llm_analyzer.py                  # LLM分析器（日志定位）
+├── coordinator/                     # 协调层
+│   └── master_coordinator.py            # 主协调器
+├── data/                            # 数据层
+│   ├── kg_interface.py                  # 知识图谱接口
+│   └── mock_indirect_calls.py           # Mock间接调用（临时）
+├── llm/                             # LLM层
+│   └── openai_client.py                 # OpenAI客户端封装
+├── utils/                           # 工具函数
+│   ├── logger.py                        # 日志工具
+│   └── source_code_reader.py            # 源码读取工具
+├── examples/                        # 示例脚本
+│   └── run_mmc_case.py                  # MMC案例（3行日志→16节点）
+├── tests/                           # 测试脚本
+│   └── verify_16node_path.py            # 验证16节点路径
+├── test_integrated_source_analysis.py   # LLM源码分析集成测试
+├── test_integration_logic.py            # 集成逻辑测试（Mock）
+├── llm_assisted_localization.py         # LLM辅助定位（两阶段）
+├── INTEGRATION_SUMMARY.md               # LLM集成总结文档
+└── output/                          # 输出结果（自动生成）
 ```
 
 ## 🚀 快速开始
@@ -332,13 +350,44 @@ MOCK_FUNCTION_POINTER_CALLS = {
 
 ## 🧪 测试
 
+### 主流程测试
+
 ```bash
 # 验证16节点路径
 python tests/verify_16node_path.py
 
-# 运行主程序
+# 运行主程序（不使用LLM）
 python examples/run_mmc_case.py
 ```
+
+### LLM源码分析测试
+
+```bash
+# 测试LLM源码分析功能（需要LLM API）
+python test_integrated_source_analysis.py
+```
+
+**测试说明**：
+- 测试案例：`mmc_schedule_delayed_work` → `mmc_rescan`
+- LLM会分析源码发现通过 `host->detect` 异步连接
+- 需要先在脚本中配置API key（第36行）
+- 期望输出：
+  ```
+  ✅ LLM源码分析成功!
+     类型: async_work
+     桥接: host->detect
+     置信度: 1.00
+  ```
+
+**集成逻辑测试**（Mock环境）：
+```bash
+python test_integration_logic.py
+```
+
+这个测试验证分层回退机制：
+- Layer 1: LLM源码分析
+- Layer 2: Mock数据回退
+- 向后兼容性测试
 
 ## ⚙️ 配置
 
@@ -352,18 +401,22 @@ python examples/run_mmc_case.py
 
 ## 🔮 下一步计划
 
-### Phase 1: 基础增强（待实现）
-1. **图谱PRINT关系映射**：使用图谱的日志信息替代Mock规则
-2. **Top-K路径返回**：返回多条候选路径供选择
+### Phase 1: LLM源码分析启用（进行中）
+1. ✅ **LLM源码分析模块**：已实现并通过测试
+2. ✅ **分层回退机制**：LLM优先，Mock兜底
+3. 🔨 **主流程集成**：将LLM源码分析集成到 `run_mmc_case.py`
+   - 当前状态：独立模块已就绪，可通过测试脚本验证
+   - 下一步：架构调整，让第1层就能使用LLM（而非等到第2层）
 
-### Phase 2: LLM增强（待实现）
-3. **LLM断点修复**：动态推理间接调用，替代Mock数据
-4. **LLM指导剪枝**：利用LLM知识优化搜索方向
+### Phase 2: 基础增强（待实现）
+4. **图谱PRINT关系映射**：使用图谱的日志信息替代Mock规则
+5. **Top-K路径返回**：返回多条候选路径供选择
+6. **LLM指导剪枝**：利用LLM知识优化搜索方向
 
 ### Phase 3: 高级功能（规划中）
-5. 根因分析Agent
-6. 修复建议Agent
-7. Web可视化界面
+7. 根因分析Agent
+8. 修复建议Agent
+9. Web可视化界面
 
 ## 🎯 技术亮点
 

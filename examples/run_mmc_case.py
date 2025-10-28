@@ -18,21 +18,6 @@ import json
 # 配置日志
 setup_logger()
 
-# 初始化 LLM 客户端（可选）
-def create_llm_client():
-    """创建 LLM 客户端"""
-    # 使用自定义API endpoint（支持LLM源码分析）
-    base_url = "http://10.12.208.86:8502"
-    api_key = ""  # 自定义endpoint不需要真实API key
-    model = "gpt-4o-mini"  # 使用较便宜的模型
-
-    print(f"✓ 启用 LLM 功能")
-    print(f"  - 服务地址: {base_url}")
-    print(f"  - 模型: {model}")
-    print(f"  - 功能: 源码分析修复断裂调用链")
-
-    return OpenAIClient(api_key=api_key, model=model, base_url=base_url)
-
 
 def run_mmc_case():
     """运行甲方MMC案例"""
@@ -49,11 +34,10 @@ mmc0: error -1 whilst initialising MMC card
     # 指定数据目录
     data_dir = "/data/xuao/code_kg_search/linux_test/data"
 
-    # 创建 LLM 客户端（可选）
-    llm_client = create_llm_client()
-
-    # 创建协调器
-    coordinator = MasterCoordinator(data_dir=data_dir, llm_client=llm_client)
+    # 创建协调器（不启用LLM）
+    # 注意: LLM源码分析功能已集成但暂未在主流程启用
+    # 可以通过传入 llm_client 参数启用
+    coordinator = MasterCoordinator(data_dir=data_dir, llm_client=None)
     
     try:
         # 方式1：自动推断起点和终点
