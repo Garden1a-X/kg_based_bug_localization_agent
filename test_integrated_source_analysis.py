@@ -13,7 +13,7 @@ sys.path.insert(0, str(project_root))
 
 from data.kg_interface import KnowledgeGraphInterface
 from agents.chain_tracer_agent import CallChainTracerAgent
-from agents.llm_analyzer import LLMAnalyzer
+from llm.openai_client import OpenAIClient
 
 
 def test_broken_chain_with_llm():
@@ -32,11 +32,13 @@ def test_broken_chain_with_llm():
 
     # 2. 初始化LLM客户端
     print("\n[2/4] 初始化LLM客户端...")
-    llm = LLMAnalyzer(
-        api_key="",
+    llm = OpenAIClient(
+        api_key="YOUR_API_KEY_HERE",  # 请在这里填入你的API key
+        model="gpt-4o-mini",
         base_url="http://10.12.208.86:8502"
     )
     print(f"  ✓ LLM客户端初始化完成 (model: {llm.model})")
+    print(f"  - API可用: {llm.is_available()}")
 
     # 3. 初始化CallChainTracerAgent（带LLM）
     print("\n[3/4] 初始化CallChainTracerAgent...")
