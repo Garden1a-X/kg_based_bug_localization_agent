@@ -21,15 +21,17 @@ setup_logger()
 # 初始化 LLM 客户端（可选）
 def create_llm_client():
     """创建 LLM 客户端"""
-    # 从环境变量读取 API Key
-    api_key = os.getenv('OPENAI_API_KEY')
-    if api_key:
-        print("✓ 检测到 OPENAI_API_KEY，启用 LLM 功能")
-        return OpenAIClient(api_key=api_key, model="gpt-4")
-    else:
-        print("⚠ 未设置 OPENAI_API_KEY，LLM 功能将不可用")
-        print("  提示: export OPENAI_API_KEY='your-api-key'")
-        return None
+    # 使用自定义API endpoint（支持LLM源码分析）
+    base_url = "http://10.12.208.86:8502"
+    api_key = ""  # 自定义endpoint不需要真实API key
+    model = "gpt-4o-mini"  # 使用较便宜的模型
+
+    print(f"✓ 启用 LLM 功能")
+    print(f"  - 服务地址: {base_url}")
+    print(f"  - 模型: {model}")
+    print(f"  - 功能: 源码分析修复断裂调用链")
+
+    return OpenAIClient(api_key=api_key, model=model, base_url=base_url)
 
 
 def run_mmc_case():

@@ -219,7 +219,8 @@ class MasterCoordinator:
             console.print("[bold cyan]断点修复统计:[/bold cyan]")
             console.print(f"  总断点数: {stats['total_breaks']}")
             console.print(f"  规则修复: {stats['fixed_by_rules']}")
-            console.print(f"  LLM修复: {stats['fixed_by_llm']}")
+            console.print(f"  LLM源码分析修复: {stats.get('fixed_by_source_analysis', 0)} ✨")
+            console.print(f"  LLM推理修复: {stats['fixed_by_llm']}")
             console.print(f"  未修复: {stats['unfixed']}")
             console.print()
         
@@ -251,17 +252,26 @@ class MasterCoordinator:
         """显示最终报告"""
         success = report['success']
         chain = report['chain']
-        
+        stats = chain['stats']
+
+        # 计算已修复数量
+        fixed_count = (stats['fixed_by_rules'] +
+                      stats.get('fixed_by_source_analysis', 0) +
+                      stats['fixed_by_llm'])
+
         # 创建总结面板
         summary = f"""
 状态: {'✓ 成功' if success else '✗ 部分成功'}
 调用链长度: {chain['length']}
-总断点数: {chain['stats']['total_breaks']}
-已修复: {chain['stats']['fixed_by_rules'] + chain['stats']['fixed_by_llm']}
-未修复: {chain['stats']['unfixed']}
+总断点数: {stats['total_breaks']}
+已修复: {fixed_count}
+  - 规则修复: {stats['fixed_by_rules']}
+  - LLM源码分析: {stats.get('fixed_by_source_analysis', 0)} ✨
+  - LLM推理: {stats['fixed_by_llm']}
+未修复: {stats['unfixed']}
         """
-        
-        print_panel("分析总结", summary.strip(), 
+
+        print_panel("分析总结", summary.strip(),
                    style="green" if success else "yellow")
     
     def close(self):

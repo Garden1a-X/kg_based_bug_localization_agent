@@ -9,16 +9,18 @@ from loguru import logger
 class OpenAIClient:
     """OpenAI API 客户端"""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4", base_url: Optional[str] = None):
         """
         初始化 OpenAI 客户端
 
         Args:
             api_key: OpenAI API Key，如果为None则从环境变量读取
             model: 模型名称，默认 gpt-4
+            base_url: API服务地址，用于自定义endpoint
         """
         self.api_key = api_key or os.getenv('OPENAI_API_KEY')
         self.model = model
+        self.base_url = base_url
         self.client = None
 
         if not self.api_key:
@@ -28,8 +30,12 @@ class OpenAIClient:
         try:
             # 延迟导入，避免没有安装 openai 包时报错
             from openai import OpenAI
-            self.client = OpenAI(api_key=self.api_key)
-            logger.info(f"OpenAI 客户端初始化成功，模型: {self.model}")
+            if base_url:
+                self.client = OpenAI(api_key=self.api_key, base_url=base_url)
+                logger.info(f"OpenAI 客户端初始化成功，模型: {self.model}, 服务地址: {base_url}")
+            else:
+                self.client = OpenAI(api_key=self.api_key)
+                logger.info(f"OpenAI 客户端初始化成功，模型: {self.model}")
         except ImportError:
             logger.error("未安装 openai 包，请运行: pip install openai")
         except Exception as e:
