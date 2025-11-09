@@ -755,18 +755,19 @@ class KnowledgeGraphInterface:
         debug: bool = False
     ) -> List[Dict]:
         """
-        查找Top-K条调用路径（支持间接调用和call_line剪枝）
+        查找Top-K条调用路径（支持间接调用和call_line排序）
 
         Args:
             start: 起始函数名
             end: 目标函数名
             max_depth: 最大搜索深度
             k: 返回路径数量上限
-            error_line: 错误发生的行号（可选，用于剪枝）
+            error_line: 已废弃（保留用于兼容性，不再用于剪枝）
             debug: 是否输出调试信息
 
         Returns:
-            路径列表，每个路径包含 path, edges, score 等信息
+            路径列表，每个路径包含 path, edges, score, avg_call_line 等信息
+            路径按得分排序，得分考虑了路径长度、间接调用数量和平均调用行号
         """
         if debug:
             print(f"\n{'='*80}")
@@ -776,7 +777,7 @@ class KnowledgeGraphInterface:
             print(f"终点: {end}")
             print(f"最大深度: {max_depth}")
             if error_line:
-                print(f"错误行号: {error_line} (将剪枝该行之后的调用)")
+                print(f"注意: error_line参数已废弃 (传入值: {error_line})")
 
         # 获取起点和终点的实体
         start_entity = self.find_function(start)

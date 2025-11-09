@@ -291,7 +291,7 @@ class MasterCoordinator:
         Args:
             log_text: 错误日志文本
             k: 返回路径数量上限
-            error_line: 错误发生的行号（可选，用于剪枝）
+            error_line: 已废弃（保留用于兼容性，不再用于剪枝）
 
         Returns:
             包含多条路径的分析结果
@@ -355,7 +355,7 @@ class MasterCoordinator:
             start_func: 起点函数名
             end_func: 终点函数名
             k: 返回路径数量上限
-            error_line: 错误发生的行号（可选）
+            error_line: 已废弃（保留用于兼容性，不再用于剪枝）
 
         Returns:
             包含多条路径的分析结果
@@ -407,10 +407,12 @@ class MasterCoordinator:
             breaks = path_result['breaks']
             score = path_result.get('score', 0)
             indirect_count = path_result.get('indirect_count', 0)
+            avg_call_line = path_result.get('avg_call_line', 0)
 
             # 路径标题
             console.print(f"[bold green]路径 #{idx+1}[/bold green] "
-                         f"(长度={len(path)}, 间接调用={indirect_count}, 得分={score})")
+                         f"(长度={len(path)}, 间接调用={indirect_count}, "
+                         f"平均行号={avg_call_line:.1f}, 得分={score:.2f})")
 
             # 显示路径
             for i, func in enumerate(path):

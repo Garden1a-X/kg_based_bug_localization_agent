@@ -587,7 +587,7 @@ class CallChainTracerAgent(BaseAgent):
             end_entity: 目标实体
             max_depth: 最大搜索深度
             k: 返回路径数量上限
-            error_line: 错误发生的行号（可选，用于剪枝）
+            error_line: 已废弃（保留用于兼容性，不再用于剪枝）
 
         Returns:
             路径列表，每个路径包含 path, edges, breaks 等信息
@@ -597,7 +597,7 @@ class CallChainTracerAgent(BaseAgent):
 
         self.log_start(f"追踪Top-{k}条调用链: {start_name} -> {end_name}")
         if error_line:
-            logger.info(f"使用错误行号 {error_line} 进行剪枝优化")
+            logger.warning(f"error_line参数已废弃，不再用于剪枝（传入值: {error_line}）")
 
         # 使用新的Top-K路径搜索
         paths = self.kg.find_top_k_call_paths_with_indirect(

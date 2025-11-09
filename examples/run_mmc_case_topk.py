@@ -1,6 +1,6 @@
 """
 演示Top-K路径搜索功能
-展示如何使用call_line剪枝和返回多条路径
+展示如何使用call_line排序和返回多条路径
 """
 import os
 import sys
@@ -74,31 +74,24 @@ mmc0: error -1 whilst initialising MMC card
 
         print(f"\n结果已保存到: {output_dir / 'mmc_case_topk_specific.json'}")
 
-        # ========== 方式3：使用call_line剪枝（示例） ==========
-        print("\n\n[方式3] 指定起止点 + call_line剪枝 + Top-5路径:")
-        print("=" * 60)
-        print("注意: 这是一个演示，error_line=200 意味着只搜索第200行之前的调用")
-
-        result3 = coordinator.process_top_k_with_specific_functions(
-            mmc_error_log,
-            start_func='dw_mci_pltfm_probe',
-            end_func='dw_mci_execute_tuning',
-            k=5,
-            error_line=200  # 假设错误发生在第200行，只搜索该行之前的调用
-        )
-
-        with open(output_dir / 'mmc_case_topk_pruned.json', 'w', encoding='utf-8') as f:
-            json.dump(result3, f, indent=2, ensure_ascii=False)
-
-        print(f"\n结果已保存到: {output_dir / 'mmc_case_topk_pruned.json'}")
-
         # 显示对比
         print("\n\n" + "=" * 60)
         print("路径数量对比:")
         print("=" * 60)
         print(f"  方式1 (自动推断):     {result1.get('path_count', 0)} 条路径")
         print(f"  方式2 (指定起止点):   {result2.get('path_count', 0)} 条路径")
-        print(f"  方式3 (call_line剪枝): {result3.get('path_count', 0)} 条路径")
+
+        # 显示call_line排序信息
+        if result2.get('paths'):
+            print("\n" + "=" * 60)
+            print("路径详情（已按得分排序，考虑了调用行号）:")
+            print("=" * 60)
+            for idx, path in enumerate(result2['paths'][:3]):  # 只显示前3条
+                avg_line = path.get('avg_call_line', 0)
+                print(f"  路径#{idx+1}: 长度={path['length']}, "
+                      f"间接调用={path['indirect_count']}, "
+                      f"平均调用行号={avg_line:.1f}, "
+                      f"得分={path['score']:.2f}")
 
     finally:
         coordinator.close()
@@ -134,7 +127,8 @@ def demo_topk_direct():
             print(f"\n路径 #{idx+1}:")
             print(f"  长度: {path['length']}")
             print(f"  间接调用: {path['indirect_count']}")
-            print(f"  得分: {path['score']}")
+            print(f"  平均调用行号: {path.get('avg_call_line', 0):.1f}")
+            print(f"  得分: {path['score']:.2f}")
             print(f"  路径: {' -> '.join(path['path'][:5])} ... {' -> '.join(path['path'][-3:])}")
 
     finally:
