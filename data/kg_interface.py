@@ -838,9 +838,19 @@ class KnowledgeGraphInterface:
                     if entity:
                         path_names.append(entity['name'])
 
-                # 计算路径得分（越短越好，间接调用越少越好）
+                # 计算路径得分
+                # 1. 越短越好（每个节点扣1分）
+                # 2. 间接调用越少越好（每个间接调用扣10分）
+                # 3. 调用发生得越早越好（call_line越小越好）
                 indirect_count = sum(1 for e in edge_types if isinstance(e, dict))
-                score = 1000 - current_depth - indirect_count * 10
+
+                # 计算平均调用行号（忽略None值）
+                valid_call_lines = [cl for cl in call_lines if cl is not None]
+                avg_call_line = sum(valid_call_lines) / len(valid_call_lines) if valid_call_lines else 0
+
+                # 得分计算：基础分1000 - 路径长度 - 间接调用惩罚 - 调用行号惩罚
+                # 调用行号惩罚：平均行号除以100（让行号的影响小于间接调用）
+                score = 1000 - current_depth - indirect_count * 10 - avg_call_line / 100
 
                 found_paths.append({
                     'path': path_names,
@@ -848,7 +858,8 @@ class KnowledgeGraphInterface:
                     'call_lines': call_lines,
                     'score': score,
                     'length': current_depth,
-                    'indirect_count': indirect_count
+                    'indirect_count': indirect_count,
+                    'avg_call_line': avg_call_line
                 })
 
                 if debug:
@@ -940,10 +951,12 @@ class KnowledgeGraphInterface:
 
         Args:
             func_id: 函数ID
-            error_line: 错误发生的行号（用于剪枝）
+            error_line: 保留参数（为了兼容性），但不再用于剪枝
+                       因为调用链是跨函数的，不同函数的行号不能直接比较
 
         Returns:
             [(callee_name, call_line), ...] 的列表
+            call_line用于后续的路径排序，优先选择调用发生得更早的路径
         """
         result = []
 
@@ -958,10 +971,10 @@ class KnowledgeGraphInterface:
                 callee_id = call_info['callee_id']
                 call_line = call_info['call_line']
 
-                # call_line 剪枝：如果知道错误发生在error_line，
-                # 那么只关注error_line之前的调用
-                if error_line and call_line and call_line > error_line:
-                    continue
+                # 注意：不再使用error_line进行剪枝！
+                # 原因：调用链是跨函数的（如 D:50 -> B:10 -> A）
+                # D的第50行调用B，B的第10行调用A，这两个行号不能比较
+                # call_line仅用于记录调用发生的位置，用于后续路径排序
 
                 # 标准化callee_id并查找名字
                 callee_id_normalized = self.normalize_id(callee_id)

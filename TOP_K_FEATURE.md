@@ -10,11 +10,15 @@
 - 路径按得分排序，得分计算考虑：
   - 路径长度（越短越好）
   - 间接调用数量（越少越好）
+  - 调用行号（平均行号越小越好，优先选择调用发生得更早的路径）
 
-### 2. **call_line剪枝优化**
+### 2. **call_line排序优化**
 - 利用CALLS关系中新增的`call_line`字段（调用发生的行号）
-- 如果知道错误发生在函数F的第N行，则只搜索第N行之前的调用
-- 有效减少搜索空间，提高搜索效率
+- 用于路径排序：优先选择调用发生得更早的路径
+- **注意**：不用于剪枝，因为调用链是跨函数的（如 D:50 -> B:10 -> A）
+  - D的第50行调用B，B的第10行调用A
+  - 这两个行号属于不同函数，不能直接比较进行剪枝
+  - call_line主要用于在多条路径中排序，优先推荐调用更早的路径
 
 ### 3. **增大搜索深度**
 - 将默认最大深度从20增加到30
@@ -85,13 +89,13 @@ result = coordinator.process_top_k_with_specific_functions(
     k=5
 )
 
-# Top-K搜索 + call_line剪枝
+# Top-K搜索（error_line参数已废弃，仅保留用于兼容性）
 result = coordinator.process_top_k_with_specific_functions(
     error_log,
     start_func='dw_mci_pltfm_probe',
     end_func='dw_mci_execute_tuning',
     k=5,
-    error_line=200  # 只搜索第200行之前的调用
+    error_line=None  # 已不再用于剪枝，仅保留用于API兼容性
 )
 
 coordinator.close()
@@ -110,7 +114,7 @@ paths = kg.find_top_k_call_paths_with_indirect(
     end='dw_mci_execute_tuning',
     max_depth=30,
     k=5,
-    error_line=None,  # 可选：错误行号
+    error_line=None,  # 已废弃：保留用于兼容性，不再用于剪枝
     debug=True
 )
 
@@ -159,12 +163,11 @@ python run_mmc_case_topk.py
 这个脚本会演示：
 1. 自动推断起止点 + Top-5路径
 2. 指定起止点 + Top-5路径
-3. call_line剪枝 + Top-5路径
+3. Top-K路径搜索（包含call_line排序）
 
 输出会保存到 `output/` 目录：
 - `mmc_case_topk_auto.json`
 - `mmc_case_topk_specific.json`
-- `mmc_case_topk_pruned.json`
 
 ### 示例2：直接测试KG接口
 
@@ -192,7 +195,7 @@ python examples/run_mmc_case_topk.py
 新增方法：
 - `_build_call_graph_with_lines()`: 构建包含行号的调用图
 - `find_top_k_call_paths_with_indirect()`: Top-K路径搜索
-- `_get_callees_with_lines()`: 获取被调用者及行号（支持剪枝）
+- `_get_callees_with_lines()`: 获取被调用者及行号（用于排序，不再用于剪枝）
 
 新增数据结构：
 ```python
@@ -225,13 +228,14 @@ self.call_graph_with_lines = {
 
 ### 搜索空间
 
-**无剪枝：**
-- 探索所有可能的调用关系
+**Top-K搜索：**
+- 探索所有可能的调用关系，找到K条最优路径
 - 搜索空间：O(branching_factor ^ depth)
+- call_line用于路径排序，不影响搜索空间大小
 
-**有call_line剪枝：**
-- 只探索error_line之前的调用
-- 搜索空间减少：约20%-50%（取决于error_line位置）
+**路径排序：**
+- 考虑路径长度、间接调用数量和平均调用行号
+- 优先返回更短、间接调用更少、调用发生更早的路径
 
 ### 子图性能
 
@@ -256,18 +260,21 @@ for idx, path in enumerate(result['paths']):
     # 用户可以根据实际情况选择最合理的路径
 ```
 
-### 场景2：精确剪枝
+### 场景2：调用行号排序
 
 ```python
-# 已知错误发生在dw_mci_execute_tuning函数的第150行
-# 只需要搜索第150行之前发生的调用
+# call_line信息会自动用于路径排序
+# 优先返回调用发生得更早的路径
 result = coordinator.process_top_k_with_specific_functions(
     error_log,
     start_func='dw_mci_pltfm_probe',
     end_func='dw_mci_execute_tuning',
-    k=5,
-    error_line=150  # 精确剪枝
+    k=5
 )
+
+# 查看每条路径的调用行号信息
+for idx, path in enumerate(result['paths']):
+    print(f"路径 #{idx+1}: 平均调用行号={path.get('avg_call_line', 0):.1f}")
 ```
 
 ### 场景3：路径比较
@@ -286,19 +293,25 @@ for idx, path in enumerate(result['paths']):
 ## 🔍 路径得分计算
 
 ```python
-score = 1000 - path_length - indirect_count * 10
+score = 1000 - path_length - indirect_count * 10 - avg_call_line / 100
 ```
 
 - 基础分：1000
 - 每增加1个节点：扣1分
 - 每增加1个间接调用：扣10分
+- 平均调用行号：除以100后扣分（影响较小）
 
 示例：
-- 路径A：长度15，无间接调用 → 得分 985
-- 路径B：长度16，4个间接调用 → 得分 944
-- 路径C：长度12，2个间接调用 → 得分 968
+- 路径A：长度15，无间接调用，平均行号100 → 得分 985 - 1.0 = 984
+- 路径B：长度16，4个间接调用，平均行号50 → 得分 944 - 0.5 = 943.5
+- 路径C：长度12，2个间接调用，平均行号200 → 得分 968 - 2.0 = 966
 
 **排序：A > C > B**
+
+**权重说明：**
+- 路径长度权重：1（最基础）
+- 间接调用权重：10（非常重要，间接调用代表不确定性）
+- 调用行号权重：0.01（次要，用于相同条件下的精细排序）
 
 ## 🆕 兼容性
 
@@ -356,13 +369,14 @@ score = 1000 - path_length - indirect_count * 10
 }
 ```
 
-如果某些CALLS关系没有`call_line`，算法仍然可以工作，只是无法对这些边进行剪枝。
+如果某些CALLS关系没有`call_line`，算法仍然可以工作，只是这些边在排序时不会考虑行号信息。
 
-### 2. error_line参数
+### 2. error_line参数（已废弃）
 
-`error_line`是可选的：
-- 如果提供：进行call_line剪枝，搜索更快
-- 如果不提供：不剪枝，搜索所有可能的调用
+`error_line`参数已不再用于剪枝：
+- 保留此参数仅为了API兼容性
+- 建议传入`None`或省略此参数
+- call_line信息会自动用于路径排序，无需手动指定
 
 ### 3. k值选择
 
@@ -404,6 +418,7 @@ score = 1000 - path_length - indirect_count * 10
 
 如果遇到问题或有改进建议，请在运行后反馈：
 - 是否成功找到多条路径？
-- call_line剪枝是否有效？
+- call_line排序是否有效（调用更早的路径是否得分更高）？
 - 搜索性能如何（速度）？
 - 路径得分排序是否合理？
+- 权重系数（路径长度:间接调用:调用行号 = 1:10:0.01）是否需要调整？
