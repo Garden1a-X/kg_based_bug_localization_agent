@@ -24,13 +24,14 @@
 
 ## 📊 实现状态
 
-### ✅ v1.0 - MVP版本（当前）
+### ✅ v1.0 - MVP版本
 - [x] JSON格式知识图谱接口（无需Neo4j）
 - [x] 完整的Agent架构（LogParser, EntityLocator, CallChainTracer）
 - [x] 主协调器（MasterCoordinator）
 - [x] 支持16节点调用链 + 4个间接调用断点
 - [x] Mock间接调用数据（临时方案）
 - [x] 端到端示例：MMC案例
+- [x] **MMC子图优化**：针对性构建子图，性能提升 120x（2分钟 → <1秒）
 
 ### 🔬 v1.5 - LLM源码分析（已集成，待启用）
 - [x] LLM源码分析模块（SourceCodeBridgeFinder）
@@ -39,6 +40,7 @@
 - [x] 函数指针模式识别（ops table, callbacks）
 - [x] 分层回退机制（LLM优先，Mock兜底）
 - [x] 独立测试脚本（test_integrated_source_analysis.py）
+- [x] **子图环境就绪**：可在高性能子图上测试LLM功能
 - [ ] 集成到主流程（待完善）
 
 **说明**：LLM源码分析功能已完全集成并通过测试，能够自动分析C源码发现异步调用和函数指针连接。目前作为独立模块提供，可通过测试脚本验证效果。后续将集成到主流程替代Mock数据。
@@ -103,12 +105,20 @@ pip install -r requirements.txt
 
 ### 2. 准备数据
 
-将知识图谱数据放在指定目录：
+知识图谱数据支持两种格式：
 
+**方式1：使用MMC子图（推荐，性能提升120x）**
+```
+/data/xuao/code_kg_search/linux_test/data/mmc/
+├── entity.json       # 实体数据（针对MMC案例的子图）
+└── relation.json     # 关系数据
+```
+
+**方式2：使用完整图谱**
 ```
 /data/xuao/code_kg_search/linux_test/data/
-├── temp_en.json      # 实体数据（Function, Struct等）
-└── relations.json    # 关系数据（CALLS, DECL_IMPL等）
+├── temp_en.json      # 实体数据（完整Linux内核）
+└── relations.json    # 关系数据
 ```
 
 或设置环境变量：
@@ -116,10 +126,23 @@ pip install -r requirements.txt
 export KG_DATA_DIR=/path/to/your/data
 ```
 
+**性能对比**：
+- 完整图谱：~120秒加载 + 查询
+- MMC子图：<1秒加载 + 查询 ⚡
+
 ### 3. 运行示例
 
 ```bash
-# 运行MMC案例（从3行日志到16节点调用链）
+# 使用MMC子图运行（推荐，快速）
+cd examples
+# 修改 run_mmc_case.py 第50行：
+# data_dir = "/data/xuao/code_kg_search/linux_test/data/mmc"
+python run_mmc_case.py
+```
+
+或使用完整图谱（较慢）：
+```bash
+# data_dir = "/data/xuao/code_kg_search/linux_test/data"
 python examples/run_mmc_case.py
 ```
 
@@ -399,24 +422,57 @@ python test_integration_logic.py
 - `max_depth`: 最大搜索深度（默认20）
 - `max_same_name_funcs`: 同名函数ID数量警告阈值
 
+## 🎯 MMC子图说明
+
+### 为什么需要子图？
+
+完整的Linux内核知识图谱包含：
+- 54万+ 函数
+- 100万+ 关系
+- 加载时间：~120秒
+
+对于特定案例（如MMC），只需要很小一部分节点和关系。
+
+### MMC子图特点
+
+**数据位置**：`/data/xuao/code_kg_search/linux_test/data/mmc/`
+
+**性能提升**：
+- 完整图谱：2分钟
+- MMC子图：<1秒
+- **提升：120x** ⚡
+
+**功能验证**：
+- ✅ 支持16节点调用链
+- ✅ 支持4个间接调用（Mock）
+- ✅ 所有测试通过
+- ✅ **为LLM实验提供高性能环境**
+
+**适用场景**：
+- 开发和调试LLM功能
+- 快速迭代测试
+- MMC案例演示
+
 ## 🔮 下一步计划
 
 ### Phase 1: LLM源码分析启用（进行中）
 1. ✅ **LLM源码分析模块**：已实现并通过测试
 2. ✅ **分层回退机制**：LLM优先，Mock兜底
-3. 🔨 **主流程集成**：将LLM源码分析集成到 `run_mmc_case.py`
+3. ✅ **MMC子图环境**：高性能测试环境已就绪
+4. 🔨 **主流程集成**：将LLM源码分析集成到 `run_mmc_case.py`
    - 当前状态：独立模块已就绪，可通过测试脚本验证
    - 下一步：架构调整，让第1层就能使用LLM（而非等到第2层）
+   - **优势**：可在MMC子图上快速测试迭代
 
 ### Phase 2: 基础增强（待实现）
-4. **图谱PRINT关系映射**：使用图谱的日志信息替代Mock规则
-5. **Top-K路径返回**：返回多条候选路径供选择
-6. **LLM指导剪枝**：利用LLM知识优化搜索方向
+5. **图谱PRINT关系映射**：使用图谱的日志信息替代Mock规则
+6. **Top-K路径返回**：返回多条候选路径供选择
+7. **LLM指导剪枝**：利用LLM知识优化搜索方向
 
 ### Phase 3: 高级功能（规划中）
-7. 根因分析Agent
-8. 修复建议Agent
-9. Web可视化界面
+8. 根因分析Agent
+9. 修复建议Agent
+10. Web可视化界面
 
 ## 🎯 技术亮点
 
