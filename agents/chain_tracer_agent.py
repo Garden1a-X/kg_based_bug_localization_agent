@@ -50,7 +50,7 @@ class CallChainTracerAgent(BaseAgent):
         }
     
     def execute(self, start_entity: Dict, end_entity: Dict,
-                max_depth: int = 20) -> Dict:
+                max_depth: int = 30) -> Dict:
         """
         追踪调用链 - 分层降级策略
 
@@ -570,3 +570,86 @@ class CallChainTracerAgent(BaseAgent):
     def get_stats(self) -> Dict:
         """获取统计信息"""
         return self.stats.copy()
+
+    def execute_top_k(
+        self,
+        start_entity: Dict,
+        end_entity: Dict,
+        max_depth: int = 30,
+        k: int = 5,
+        error_line: Optional[int] = None
+    ) -> List[Dict]:
+        """
+        追踪Top-K条调用链
+
+        Args:
+            start_entity: 起始实体
+            end_entity: 目标实体
+            max_depth: 最大搜索深度
+            k: 返回路径数量上限
+            error_line: 错误发生的行号（可选，用于剪枝）
+
+        Returns:
+            路径列表，每个路径包含 path, edges, breaks 等信息
+        """
+        start_name = start_entity['name']
+        end_name = end_entity['name']
+
+        self.log_start(f"追踪Top-{k}条调用链: {start_name} -> {end_name}")
+        if error_line:
+            logger.info(f"使用错误行号 {error_line} 进行剪枝优化")
+
+        # 使用新的Top-K路径搜索
+        paths = self.kg.find_top_k_call_paths_with_indirect(
+            start_name,
+            end_name,
+            max_depth=max_depth,
+            k=k,
+            error_line=error_line,
+            debug=False
+        )
+
+        if not paths:
+            self.log_error("未找到任何路径")
+            return []
+
+        self.log_success(f"✓ 找到 {len(paths)} 条路径")
+
+        # 处理每条路径，添加breaks信息
+        result_paths = []
+        for idx, path_info in enumerate(paths):
+            edges = path_info.get('edges', [])
+            path = path_info.get('path', [])
+            call_lines = path_info.get('call_lines', [])
+
+            # 统计间接调用数量
+            indirect_count = sum(1 for e in edges if isinstance(e, dict) and e.get('type') == 'indirect')
+
+            # 构建 breaks 信息（用于显示间接调用位置）
+            breaks = []
+            for i, edge in enumerate(edges):
+                if isinstance(edge, dict) and edge.get('type') == 'indirect':
+                    breaks.append({
+                        'position': i,
+                        'from': path[i],
+                        'to': path[i + 1],
+                        'fixed': True,
+                        'method': 'mock_indirect_call',
+                        'bridge': edge.get('bridge', {})
+                    })
+
+            result_paths.append({
+                'path': path,
+                'edges': edges,
+                'call_lines': call_lines,
+                'breaks': breaks,
+                'score': path_info.get('score', 0),
+                'length': path_info.get('length', len(path)),
+                'indirect_count': indirect_count,
+                'method': 'top_k_search',
+                'success': True
+            })
+
+            logger.info(f"  路径 #{idx+1}: 长度={len(path)}, 间接调用={indirect_count}, 得分={path_info.get('score', 0)}")
+
+        return result_paths

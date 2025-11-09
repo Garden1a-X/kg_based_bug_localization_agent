@@ -278,3 +278,213 @@ class MasterCoordinator:
         """关闭协调器"""
         self.kg.close()
         logger.info("协调器已关闭")
+
+    def process_top_k(
+        self,
+        log_text: str,
+        k: int = 5,
+        error_line: int = None
+    ) -> Dict:
+        """
+        处理错误日志，返回Top-K条调用链
+
+        Args:
+            log_text: 错误日志文本
+            k: 返回路径数量上限
+            error_line: 错误发生的行号（可选，用于剪枝）
+
+        Returns:
+            包含多条路径的分析结果
+        """
+        print_header(f"Bug定位分析流程 (Top-{k}路径)")
+
+        # 第1步：日志解析
+        print_step(1, 4, "解析错误日志")
+        if 'mmc' in log_text.lower() or 'tuning' in log_text.lower():
+            parsed_log = self.log_parser.parse_mmc_log(log_text)
+        else:
+            parsed_log = self.log_parser.execute(log_text)
+        self._display_parsed_log(parsed_log)
+
+        # 第2步：实体定位
+        print_step(2, 4, "在图谱中定位实体")
+        entities = self.entity_locator.execute(parsed_log)
+        self._display_entities(entities)
+
+        # 检查是否找到起点和终点
+        if not entities['start_entity'] or not entities['end_entity']:
+            print_error("无法定位起点或终点，分析终止")
+            return {
+                'success': False,
+                'parsed_log': parsed_log,
+                'entities': entities,
+                'error': '无法定位起点或终点'
+            }
+
+        # 第3步：追踪Top-K条调用链
+        print_step(3, 4, "追踪Top-K条调用链")
+        paths = self.chain_tracer.execute_top_k(
+            entities['start_entity'],
+            entities['end_entity'],
+            k=k,
+            error_line=error_line
+        )
+        self._display_multiple_chains(paths)
+
+        # 第4步：生成报告
+        print_step(4, 4, "生成分析报告")
+        report = self._generate_multi_path_report(parsed_log, entities, paths)
+
+        print_success(f"分析完成！找到 {len(paths)} 条路径")
+
+        return report
+
+    def process_top_k_with_specific_functions(
+        self,
+        log_text: str,
+        start_func: str,
+        end_func: str,
+        k: int = 5,
+        error_line: int = None
+    ) -> Dict:
+        """
+        使用指定的起点和终点，返回Top-K条调用链
+
+        Args:
+            log_text: 错误日志文本
+            start_func: 起点函数名
+            end_func: 终点函数名
+            k: 返回路径数量上限
+            error_line: 错误发生的行号（可选）
+
+        Returns:
+            包含多条路径的分析结果
+        """
+        print_header(f"Bug定位分析流程（指定起止点，Top-{k}路径）")
+
+        # 第1步：日志解析
+        print_step(1, 3, "解析错误日志")
+        parsed_log = self.log_parser.execute(log_text)
+
+        # 第2步：定位指定函数
+        print_step(2, 3, "定位指定函数")
+        entities = self.entity_locator.locate_specific(start_func, end_func)
+        self._display_entities(entities)
+
+        if not entities['start_entity'] or not entities['end_entity']:
+            print_error("无法定位指定的起点或终点")
+            return {
+                'success': False,
+                'error': '无法定位指定函数'
+            }
+
+        # 第3步：追踪Top-K条调用链
+        print_step(3, 3, "追踪Top-K条调用链")
+        paths = self.chain_tracer.execute_top_k(
+            entities['start_entity'],
+            entities['end_entity'],
+            k=k,
+            error_line=error_line
+        )
+        self._display_multiple_chains(paths)
+
+        # 生成报告
+        report = self._generate_multi_path_report(parsed_log, entities, paths)
+        print_success(f"分析完成！找到 {len(paths)} 条路径")
+
+        return report
+
+    def _display_multiple_chains(self, paths: list):
+        """显示多条调用链"""
+        if not paths:
+            console.print("[yellow]未找到路径[/yellow]")
+            return
+
+        console.print(f"[bold cyan]找到 {len(paths)} 条路径:[/bold cyan]\n")
+
+        for idx, path_result in enumerate(paths):
+            path = path_result['path']
+            breaks = path_result['breaks']
+            score = path_result.get('score', 0)
+            indirect_count = path_result.get('indirect_count', 0)
+
+            # 路径标题
+            console.print(f"[bold green]路径 #{idx+1}[/bold green] "
+                         f"(长度={len(path)}, 间接调用={indirect_count}, 得分={score})")
+
+            # 显示路径
+            for i, func in enumerate(path):
+                # 检查是否是断点修复的位置
+                is_bridge = any(b['position'] == i-1 and b['fixed']
+                              for b in breaks)
+
+                # 显示 call_line 信息
+                call_line_info = ""
+                if 'call_lines' in path_result and i > 0:
+                    call_line = path_result['call_lines'][i-1]
+                    if call_line:
+                        call_line_info = f" [dim](line {call_line})[/dim]"
+
+                if is_bridge:
+                    # 找到桥接类型
+                    bridge_type = "桥接"
+                    for b in breaks:
+                        if b['position'] == i-1 and b['fixed']:
+                            bridge_info = b.get('bridge', {})
+                            bridge_type = bridge_info.get('bridge_type', '桥接')
+                            break
+                    console.print(f"  {i}. [yellow]{func}[/yellow] ({bridge_type}){call_line_info}")
+                else:
+                    console.print(f"  {i}. {func}{call_line_info}")
+
+            console.print()
+
+    def _generate_multi_path_report(self, parsed_log: Dict, entities: Dict,
+                                    paths: list) -> Dict:
+        """生成多路径分析报告"""
+        if not paths:
+            return {
+                'success': False,
+                'parsed_log': parsed_log,
+                'entities': entities,
+                'paths': [],
+                'error': '未找到路径'
+            }
+
+        report = {
+            'success': True,
+            'parsed_log': parsed_log,
+            'entities': entities,
+            'paths': paths,
+            'path_count': len(paths),
+            'best_path': paths[0] if paths else None  # 得分最高的路径
+        }
+
+        # 显示总结
+        self._display_multi_path_summary(report)
+
+        return report
+
+    def _display_multi_path_summary(self, report: Dict):
+        """显示多路径总结"""
+        paths = report['paths']
+        if not paths:
+            return
+
+        # 统计信息
+        total_paths = len(paths)
+        min_length = min(len(p['path']) for p in paths)
+        max_length = max(len(p['path']) for p in paths)
+        avg_length = sum(len(p['path']) for p in paths) / total_paths
+
+        min_indirect = min(p.get('indirect_count', 0) for p in paths)
+        max_indirect = max(p.get('indirect_count', 0) for p in paths)
+
+        summary = f"""
+找到路径数: {total_paths}
+路径长度: {min_length} - {max_length} (平均 {avg_length:.1f})
+间接调用: {min_indirect} - {max_indirect}
+最佳路径: 路径 #1 (得分={paths[0].get('score', 0)})
+        """
+
+        print_panel("多路径分析总结", summary.strip(), style="green")

@@ -45,6 +45,10 @@ class KnowledgeGraphInterface:
         # 函数名到所有ID的映射（支持同名函数）
         self.func_name_to_ids = {}  # {func_name: [id1, id2, ...]}
 
+        # 调用关系图（包含行号信息）
+        # {caller_id: [(callee_id, call_line), ...]}
+        self.call_graph_with_lines = {}
+
         # 加载所有数据
         self._load_all_data()
 
@@ -146,6 +150,9 @@ class KnowledgeGraphInterface:
             for rel_type, relations in self.relations.items():
                 logger.info(f"  ✓ 加载 {rel_type}: {len(relations)} 个")
 
+        # 构建包含行号的调用图
+        self._build_call_graph_with_lines()
+
     def _build_decl_impl_mapping(self):
         """建立函数声明-实现映射"""
         from collections import defaultdict
@@ -196,6 +203,29 @@ class KnowledgeGraphInterface:
         multi_id_count = sum(1 for ids in self.func_name_to_ids.values() if len(ids) > 1)
         if multi_id_count > 0:
             logger.info(f"  ✓ 建立函数名→ID映射: {len(self.func_name_to_ids)} 个函数, {multi_id_count} 个有多个ID")
+
+    def _build_call_graph_with_lines(self):
+        """构建包含行号信息的调用图"""
+        if 'CALLS' not in self.relations:
+            return
+
+        for rel in self.relations['CALLS']:
+            caller_id = rel.get('head')
+            callee_id = rel.get('tail')
+            call_line = rel.get('call_line')
+
+            if not caller_id or not callee_id:
+                continue
+
+            if caller_id not in self.call_graph_with_lines:
+                self.call_graph_with_lines[caller_id] = []
+
+            self.call_graph_with_lines[caller_id].append({
+                'callee_id': callee_id,
+                'call_line': call_line
+            })
+
+        logger.info(f"  ✓ 构建调用图（含行号）: {len(self.call_graph_with_lines)} 个调用者")
 
     def normalize_id(self, func_id):
         """
@@ -714,6 +744,233 @@ class KnowledgeGraphInterface:
             print(f"{'='*80}\n")
 
         return None
+
+    def find_top_k_call_paths_with_indirect(
+        self,
+        start: str,
+        end: str,
+        max_depth: int = 30,
+        k: int = 5,
+        error_line: Optional[int] = None,
+        debug: bool = False
+    ) -> List[Dict]:
+        """
+        查找Top-K条调用路径（支持间接调用和call_line剪枝）
+
+        Args:
+            start: 起始函数名
+            end: 目标函数名
+            max_depth: 最大搜索深度
+            k: 返回路径数量上限
+            error_line: 错误发生的行号（可选，用于剪枝）
+            debug: 是否输出调试信息
+
+        Returns:
+            路径列表，每个路径包含 path, edges, score 等信息
+        """
+        if debug:
+            print(f"\n{'='*80}")
+            print(f"🔍 开始Top-{k}路径搜索")
+            print(f"{'='*80}")
+            print(f"起点: {start}")
+            print(f"终点: {end}")
+            print(f"最大深度: {max_depth}")
+            if error_line:
+                print(f"错误行号: {error_line} (将剪枝该行之后的调用)")
+
+        # 获取起点和终点的实体
+        start_entity = self.find_function(start)
+        end_entity = self.find_function(end)
+
+        if not start_entity or not end_entity:
+            if debug:
+                print(f"❌ 起点或终点不存在!")
+            return []
+
+        start_id = start_entity.get('id')
+        end_id = end_entity.get('id')
+
+        if not start_id or not end_id:
+            if debug:
+                print(f"❌ 起点或终点没有ID!")
+            return []
+
+        # 标准化为实现ID
+        start_id = self.normalize_id(start_id)
+        end_id = self.normalize_id(end_id)
+
+        # 获取终点的等价ID集合
+        end_equivalent_ids = self.get_equivalent_ids(end_id)
+
+        if debug:
+            print(f"\n📌 ID信息:")
+            print(f"   起点ID: {start_id}")
+            print(f"   终点ID: {end_id}")
+            print(f"   终点等价ID: {end_equivalent_ids}")
+
+        # BFS搜索（支持间接调用和多路径）
+        from collections import deque
+
+        queue = deque([(start_id, [start_id], [], [])])  # (当前id, 路径ids, 边类型, call_lines)
+        # 改变visited的记录方式：记录 (node_id, path_length) 以支持找到多条路径
+        visited_at_depth = {}  # {node_id: min_depth}
+
+        found_paths = []
+        nodes_explored = 0
+        max_queue_size = 0
+
+        while queue and len(found_paths) < k:
+            nodes_explored += 1
+            max_queue_size = max(max_queue_size, len(queue))
+
+            current_id, path_ids, edge_types, call_lines = queue.popleft()
+            current_depth = len(path_ids)
+
+            if current_depth > max_depth:
+                continue
+
+            # 检查是否到达终点
+            if current_id in end_equivalent_ids:
+                # 将id路径转换为名字路径
+                path_names = []
+                for entity_id in path_ids:
+                    entity = self.entity_by_id.get(entity_id)
+                    if entity:
+                        path_names.append(entity['name'])
+
+                # 计算路径得分（越短越好，间接调用越少越好）
+                indirect_count = sum(1 for e in edge_types if isinstance(e, dict))
+                score = 1000 - current_depth - indirect_count * 10
+
+                found_paths.append({
+                    'path': path_names,
+                    'edges': edge_types,
+                    'call_lines': call_lines,
+                    'score': score,
+                    'length': current_depth,
+                    'indirect_count': indirect_count
+                })
+
+                if debug:
+                    print(f"✅ 找到路径 #{len(found_paths)}: 长度={current_depth}, 间接调用={indirect_count}")
+
+                continue
+
+            # 检查是否应该继续探索（允许多次访问但控制深度）
+            if current_id in visited_at_depth:
+                if current_depth >= visited_at_depth[current_id] + 3:  # 允许深度差3以内的重复访问
+                    continue
+            visited_at_depth[current_id] = min(
+                visited_at_depth.get(current_id, float('inf')),
+                current_depth
+            )
+
+            current_entity = self.entity_by_id.get(current_id)
+            if not current_entity:
+                continue
+
+            current_name = current_entity['name']
+
+            # 1. 获取直接调用的邻居（带行号）
+            direct_callees = self._get_callees_with_lines(current_id, error_line)
+
+            for callee_name, callee_line in direct_callees:
+                callee_entity = self.find_function(callee_name)
+                if not callee_entity:
+                    continue
+
+                callee_id = callee_entity.get('id')
+                if not callee_id:
+                    continue
+
+                callee_id = self.normalize_id(callee_id)
+                if not callee_id or callee_id in path_ids:  # 避免环路
+                    continue
+
+                queue.append((
+                    callee_id,
+                    path_ids + [callee_id],
+                    edge_types + ['direct'],
+                    call_lines + [callee_line]
+                ))
+
+            # 2. 获取间接调用的邻居
+            indirect_callees = self._find_indirect_callees(current_name)
+
+            for callee_name, bridge_info in indirect_callees:
+                callee_entity = self.find_function(callee_name)
+                if not callee_entity:
+                    continue
+
+                callee_id = callee_entity.get('id')
+                if not callee_id:
+                    continue
+
+                callee_id = self.normalize_id(callee_id)
+                if not callee_id or callee_id in path_ids:  # 避免环路
+                    continue
+
+                queue.append((
+                    callee_id,
+                    path_ids + [callee_id],
+                    edge_types + [{'type': 'indirect', 'bridge': bridge_info}],
+                    call_lines + [None]  # 间接调用没有具体的call_line
+                ))
+
+        # 按得分排序
+        found_paths.sort(key=lambda x: x['score'], reverse=True)
+
+        if debug:
+            print(f"\n{'='*80}")
+            if found_paths:
+                print(f"✅ 找到 {len(found_paths)} 条路径")
+            else:
+                print(f"❌ 未找到路径")
+            print(f"{'='*80}")
+            print(f"📊 搜索统计:")
+            print(f"   总探索节点: {nodes_explored}")
+            print(f"   最大队列大小: {max_queue_size}")
+            print(f"{'='*80}\n")
+
+        return found_paths[:k]
+
+    def _get_callees_with_lines(self, func_id: str, error_line: Optional[int] = None) -> List[Tuple[str, Optional[int]]]:
+        """
+        获取函数的被调用者及其调用行号
+
+        Args:
+            func_id: 函数ID
+            error_line: 错误发生的行号（用于剪枝）
+
+        Returns:
+            [(callee_name, call_line), ...] 的列表
+        """
+        result = []
+
+        # 获取等价ID
+        equivalent_ids = self.get_equivalent_ids(func_id)
+
+        for equiv_id in equivalent_ids:
+            if equiv_id not in self.call_graph_with_lines:
+                continue
+
+            for call_info in self.call_graph_with_lines[equiv_id]:
+                callee_id = call_info['callee_id']
+                call_line = call_info['call_line']
+
+                # call_line 剪枝：如果知道错误发生在error_line，
+                # 那么只关注error_line之前的调用
+                if error_line and call_line and call_line > error_line:
+                    continue
+
+                # 标准化callee_id并查找名字
+                callee_id_normalized = self.normalize_id(callee_id)
+                callee_entity = self.entity_by_id.get(callee_id_normalized)
+
+                if callee_entity and 'name' in callee_entity:
+                    result.append((callee_entity['name'], call_line))
+
+        return result
 
     def find_reachable_from_start(self, start: str, max_depth: int = 10) -> Dict[str, List[str]]:
         """
