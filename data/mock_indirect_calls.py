@@ -29,16 +29,6 @@ MOCK_ASYNC_CALLS = {
 # 函数指针调用关系（ops 表）
 # 格式：{(caller_func, callee_func): bridge_info}
 MOCK_FUNCTION_POINTER_CALLS = {
-    # [位置4] dw_mci_init_slot → mmc_add_host（意外断裂，可能是函数指针/直接调用缺失）
-    # 这是16节点完整路径中的断裂点，图谱中可能缺失此关系
-    ("dw_mci_init_slot", "mmc_add_host"): {
-        "bridge_type": "function_pointer",
-        "bridge_entity": "mmc_alloc_host -> mmc_add_host",
-        "struct_name": "mmc_host",
-        "field_name": "add_host",
-        "description": "dw_mci_init_slot 调用 mmc_add_host（图谱中缺失的调用关系）"
-    },
-
     # [位置14] mmc_execute_tuning → dw_mci_execute_tuning（函数指针/ops调用）
     ("mmc_execute_tuning", "dw_mci_execute_tuning"): {
         "bridge_type": "function_pointer",
