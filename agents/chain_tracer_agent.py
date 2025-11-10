@@ -81,13 +81,16 @@ class CallChainTracerAgent(BaseAgent):
             breaks = []
             for i, edge in enumerate(edges):
                 if isinstance(edge, dict) and edge.get('type') == 'indirect':
+                    bridge_info = edge.get('bridge', {})
+                    # 从bridge中获取实际的检测方法（llm_analysis或mock_data）
+                    detection_method = bridge_info.get('method', 'unknown')
                     breaks.append({
                         'position': i,
                         'from': result['path'][i],
                         'to': result['path'][i + 1],
                         'fixed': True,
-                        'method': 'mock_indirect_call',
-                        'bridge': edge.get('bridge', {})
+                        'method': detection_method,  # 使用实际的检测方法
+                        'bridge': bridge_info
                     })
 
             # 更新统计
@@ -629,13 +632,16 @@ class CallChainTracerAgent(BaseAgent):
             breaks = []
             for i, edge in enumerate(edges):
                 if isinstance(edge, dict) and edge.get('type') == 'indirect':
+                    bridge_info = edge.get('bridge', {})
+                    # 从bridge中获取实际的检测方法（llm_analysis或mock_data）
+                    detection_method = bridge_info.get('method', 'unknown')
                     breaks.append({
                         'position': i,
                         'from': path[i],
                         'to': path[i + 1],
                         'fixed': True,
-                        'method': 'mock_indirect_call',
-                        'bridge': edge.get('bridge', {})
+                        'method': detection_method,  # 使用实际的检测方法
+                        'bridge': bridge_info
                     })
 
             result_paths.append({
