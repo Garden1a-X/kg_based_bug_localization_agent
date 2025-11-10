@@ -327,6 +327,9 @@ class KnowledgeGraphInterface:
             self._build_decl_impl_mapping()
             self._build_func_name_mapping()
 
+        # 构建包含行号的调用图
+        self._build_call_graph_with_lines()
+
     def close(self):
         """关闭连接"""
         logger.info("知识图谱接口关闭")
