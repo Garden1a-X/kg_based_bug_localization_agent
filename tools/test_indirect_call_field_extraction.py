@@ -200,7 +200,7 @@ class AssignedToQueryHelper:
 
     def query_by_field_name(self, field_name: str) -> List[Dict]:
         """
-        根据字段名查询ASSIGNED_TO关系
+        根据字段名查询ASSIGNED_TO关系（高效版本）
 
         Args:
             field_name: 字段名（如 "execute_tuning"）
@@ -219,28 +219,32 @@ class AssignedToQueryHelper:
             print(f"  ⚠️  图谱中没有ASSIGNED_TO关系")
             return []
 
+        # 步骤1: 找到所有名为field_name的FIELD实体ID
+        field_ids = []
+        for entity_id, entity in self.kg.entity_by_id.items():
+            if entity.get('type') == 'FIELD' and entity.get('name') == field_name:
+                field_ids.append(entity_id)
+
+        if not field_ids:
+            print(f"    ℹ️  未找到名为 '{field_name}' 的FIELD实体")
+            return []
+
+        print(f"    ℹ️  找到 {len(field_ids)} 个名为 '{field_name}' 的FIELD实体")
+
+        # 步骤2: 用这些FIELD ID在ASSIGNED_TO关系中查找
+        # 构建field_id集合用于快速查找
+        field_id_set = set(field_ids)
         results = []
 
         for rel in self.kg.relations['ASSIGNED_TO']:
-            # ASSIGNED_TO关系结构：
-            # - head: FIELD实体的ID
-            # - tail: FUNCTION实体的ID
-            # 需要通过head ID查找FIELD实体，检查其name是否匹配
-
             head_id = rel.get('head')  # FIELD实体ID
             tail_id = rel.get('tail')  # FUNCTION实体ID
 
-            if not head_id or not tail_id:
+            # 快速检查head是否是我们要找的FIELD
+            if head_id not in field_id_set:
                 continue
 
-            # 查找head对应的FIELD实体
-            field_entity = self.kg.entity_by_id.get(head_id)
-            if not field_entity:
-                continue
-
-            # 检查FIELD实体的name是否匹配
-            field_entity_name = field_entity.get('name')
-            if field_entity_name != field_name:
+            if not tail_id:
                 continue
 
             # 找到匹配！获取tail对应的FUNCTION实体
