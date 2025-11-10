@@ -203,7 +203,28 @@ mmc0: error -1 whilst initialising MMC card
         print(f"  方式1 (自动推断):     {result1.get('path_count', 0)} 条路径")
         print(f"  方式2 (指定起止点):   {result2.get('path_count', 0)} 条路径")
 
-        # 显示call_line排序信息和LLM使用情况
+        # 显示方式1的路径详情
+        if result1.get('paths'):
+            print("\n" + "=" * 60)
+            print("路径详情（方式1，前3条）:")
+            print("=" * 60)
+            for idx, path in enumerate(result1['paths'][:3]):
+                avg_line = path.get('avg_call_line', 0)
+                print(f"  路径#{idx+1}: 长度={path['length']}, "
+                      f"间接调用={path['indirect_count']}, "
+                      f"平均调用行号={avg_line:.1f}, "
+                      f"得分={path['score']:.2f}")
+
+                # 检查是否使用了LLM检测的间接调用和Mock数据
+                edges = path.get('edges', [])
+                llm_edges = [e for e in edges if isinstance(e, dict) and e.get('bridge', {}).get('method') == 'llm_analysis']
+                mock_edges = [e for e in edges if isinstance(e, dict) and e.get('bridge', {}).get('method') == 'mock_data']
+                if llm_edges:
+                    print(f"              ✓ 使用了 {len(llm_edges)} 个LLM检测的间接调用")
+                if mock_edges:
+                    print(f"              ⚠ 使用了 {len(mock_edges)} 个Mock数据的间接调用")
+
+        # 显示方式2的路径详情
         if result2.get('paths'):
             print("\n" + "=" * 60)
             print("路径详情（方式2，前3条）:")
@@ -215,11 +236,14 @@ mmc0: error -1 whilst initialising MMC card
                       f"平均调用行号={avg_line:.1f}, "
                       f"得分={path['score']:.2f}")
 
-                # 检查是否使用了LLM检测的间接调用
+                # 检查是否使用了LLM检测的间接调用和Mock数据
                 edges = path.get('edges', [])
                 llm_edges = [e for e in edges if isinstance(e, dict) and e.get('bridge', {}).get('method') == 'llm_analysis']
+                mock_edges = [e for e in edges if isinstance(e, dict) and e.get('bridge', {}).get('method') == 'mock_data']
                 if llm_edges:
                     print(f"              ✓ 使用了 {len(llm_edges)} 个LLM检测的间接调用")
+                if mock_edges:
+                    print(f"              ⚠ 使用了 {len(mock_edges)} 个Mock数据的间接调用")
 
         print("\n" + "=" * 60)
         print("说明:")
