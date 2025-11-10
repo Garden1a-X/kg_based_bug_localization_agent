@@ -220,26 +220,45 @@ class AssignedToQueryHelper:
             return []
 
         results = []
+
         for rel in self.kg.relations['ASSIGNED_TO']:
-            # ASSIGNED_TO关系的结构需要根据实际图谱确定
-            # 可能的字段：head（字段实体ID）, tail（函数实体ID）, field_name等
-            rel_field_name = rel.get('field_name') or rel.get('name')
+            # ASSIGNED_TO关系结构：
+            # - head: FIELD实体的ID
+            # - tail: FUNCTION实体的ID
+            # 需要通过head ID查找FIELD实体，检查其name是否匹配
 
-            if rel_field_name == field_name:
-                # 找到匹配的字段
-                tail_id = rel.get('tail')  # 目标函数ID
+            head_id = rel.get('head')  # FIELD实体ID
+            tail_id = rel.get('tail')  # FUNCTION实体ID
 
-                # 查询函数名
-                target_entity = self.kg.entity_by_id.get(tail_id)
-                if target_entity:
-                    target_func_name = target_entity.get('name')
-                    results.append({
-                        'target_function': target_func_name,
-                        'field_name': field_name,
-                        'context_var_id': rel.get('context_var_id', 'N/A'),
-                        'head_id': rel.get('head'),
-                        'tail_id': tail_id
-                    })
+            if not head_id or not tail_id:
+                continue
+
+            # 查找head对应的FIELD实体
+            field_entity = self.kg.entity_by_id.get(head_id)
+            if not field_entity:
+                continue
+
+            # 检查FIELD实体的name是否匹配
+            field_entity_name = field_entity.get('name')
+            if field_entity_name != field_name:
+                continue
+
+            # 找到匹配！获取tail对应的FUNCTION实体
+            target_entity = self.kg.entity_by_id.get(tail_id)
+            if not target_entity:
+                continue
+
+            target_func_name = target_entity.get('name')
+            if target_func_name:
+                results.append({
+                    'target_function': target_func_name,
+                    'field_name': field_name,
+                    'context_var_id': rel.get('context_var_id', 'N/A'),
+                    'context_var_name': rel.get('context_var_name', 'N/A'),
+                    'head_id': head_id,
+                    'tail_id': tail_id,
+                    'scope': rel.get('scope', 'N/A')
+                })
 
         return results
 
