@@ -248,7 +248,9 @@ def test_single_function(
     kg: KnowledgeGraphInterface,
     extractor: IndirectCallFieldExtractor,
     query_helper: AssignedToQueryHelper,
-    func_name: str
+    func_name: str,
+    use_mock_llm: bool = False,
+    mock_field_names: List[str] = None
 ):
     """
     测试单个函数的间接调用检测
@@ -258,9 +260,13 @@ def test_single_function(
         extractor: 字段提取器
         query_helper: 查询助手
         func_name: 函数名
+        use_mock_llm: 是否使用模拟LLM（跳过实际API调用）
+        mock_field_names: 模拟的字段名列表
     """
     print(f"\n{'='*80}")
     print(f"测试函数: {func_name}")
+    if use_mock_llm:
+        print(f"  [模拟模式] 跳过LLM调用，使用预设字段名")
     print(f"{'='*80}")
 
     # 1. 在图谱中查找函数（处理同名函数）
@@ -355,7 +361,27 @@ def test_single_function(
     # 3. LLM提取间接调用字段
     print(f"\n[3/4] LLM提取间接调用字段...")
 
-    indirect_calls = extractor.extract_indirect_call_fields(func_name, source_code)
+    if use_mock_llm:
+        # 模拟模式：直接使用预设的字段名
+        print(f"  [模拟模式] 使用预设字段名，跳过LLM API调用")
+        if not mock_field_names:
+            print(f"  ⚠️  未提供模拟字段名，使用空列表")
+            indirect_calls = []
+        else:
+            indirect_calls = [
+                {
+                    "expression": f"<模拟调用: ...{field}(...)>",
+                    "field_name": field,
+                    "explanation": "模拟数据（Mock）"
+                }
+                for field in mock_field_names
+            ]
+            print(f"  ✓ 模拟发现 {len(indirect_calls)} 个间接调用:")
+            for call in indirect_calls:
+                print(f"    - 字段: {call.get('field_name')}")
+    else:
+        # 真实模式：调用LLM
+        indirect_calls = extractor.extract_indirect_call_fields(func_name, source_code)
 
     if not indirect_calls:
         print(f"  ℹ️  未发现间接调用（可能该函数没有间接调用）")
@@ -407,6 +433,8 @@ def main():
     print("="*80)
     print("间接调用字段提取 - 独立测试")
     print("="*80)
+    print("\n提示：如果LLM API不可用，可以在代码中设置 USE_MOCK_LLM=True")
+    print("      这样会跳过LLM调用，直接使用预设字段名测试图谱查询功能。\n")
 
     # 初始化组件
     print("\n[初始化] 加载知识图谱...")
@@ -423,17 +451,35 @@ def main():
     query_helper = AssignedToQueryHelper(kg)
     print("  ✓ 查询助手初始化完成")
 
+    # 测试配置
+    # 如果LLM API不可用，可以启用模拟模式
+    USE_MOCK_LLM = True  # 改为 False 使用真实LLM
+
     # 测试函数列表（这些是需要检测间接调用的函数）
-    test_functions = [
-        "mmc_execute_tuning",     # 应该能找到 execute_tuning 字段
-        # "dw_mci_init_slot",      # 如果需要，可以测试更多函数
+    test_cases = [
+        {
+            "func_name": "mmc_execute_tuning",
+            "mock_field_names": ["execute_tuning"]  # 模拟LLM应该识别出的字段名
+        },
+        # 可以添加更多测试案例
+        # {
+        #     "func_name": "dw_mci_init_slot",
+        #     "mock_field_names": ["init_card", "execute_tuning"]
+        # },
     ]
 
     results = []
 
-    for func_name in test_functions:
+    for test_case in test_cases:
+        func_name = test_case["func_name"]
+        mock_field_names = test_case.get("mock_field_names", [])
+
         try:
-            result = test_single_function(kg, extractor, query_helper, func_name)
+            result = test_single_function(
+                kg, extractor, query_helper, func_name,
+                use_mock_llm=USE_MOCK_LLM,
+                mock_field_names=mock_field_names
+            )
             if result:
                 results.append(result)
         except Exception as e:
@@ -444,6 +490,8 @@ def main():
     # 最终报告
     print("\n" + "="*80)
     print("最终报告")
+    if USE_MOCK_LLM:
+        print("  [模拟模式已启用]")
     print("="*80)
 
     for result in results:
@@ -460,13 +508,21 @@ def main():
     print("="*80)
 
     if any(r['candidates'] for r in results):
-        print("\n✅ 方案可行！LLM成功提取字段名并在图谱中找到候选函数。")
-        print("   下一步可以将此功能集成到 _find_indirect_callees() 中。")
+        if USE_MOCK_LLM:
+            print("\n✅ 图谱查询部分工作正常！")
+            print("   模拟的字段名成功在图谱ASSIGNED_TO关系中找到候选函数。")
+            print("   下一步：申请LLM API额度后，测试真实的字段提取功能。")
+        else:
+            print("\n✅ 方案可行！LLM成功提取字段名并在图谱中找到候选函数。")
+            print("   下一步可以将此功能集成到 _find_indirect_callees() 中。")
     else:
         print("\n⚠️  未找到候选函数，可能需要调整：")
         print("   1. 检查ASSIGNED_TO关系的数据结构")
         print("   2. 检查字段名匹配逻辑")
-        print("   3. 检查LLM提取的字段名是否准确")
+        if not USE_MOCK_LLM:
+            print("   3. 检查LLM提取的字段名是否准确")
+        else:
+            print("   3. 检查模拟的字段名是否正确")
 
     kg.close()
 
