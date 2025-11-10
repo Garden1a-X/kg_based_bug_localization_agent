@@ -135,11 +135,99 @@ def demo_topk_direct():
         kg.close()
 
 
+def run_mmc_case_with_llm():
+    """运行MMC案例 - 启用LLM间接调用检测（预处理模式）"""
+
+    print_header("运行MMC案例 - LLM辅助间接调用检测")
+
+    # 甲方提供的错误日志
+    mmc_error_log = """
+ALL phases bad!
+mmc0: tuning execution failed: -1
+mmc0: error -1 whilst initialising MMC card
+    """
+
+    # 指定数据目录
+    data_dir = "/data/xuao/code_kg_search/linux_test/data/mmc"
+    if not os.path.exists(data_dir):
+        data_dir = "/data/xuao/code_kg_search/linux_test/data"
+
+    print("\n创建协调器（启用LLM间接调用检测）...")
+    print("  配置文件: config/indirect_call_detection.yaml")
+    print("  预处理模式: BFS前调用LLM分析配置的函数\n")
+
+    # 创建协调器，启用LLM检测
+    coordinator = MasterCoordinator(
+        data_dir=data_dir,
+        llm_client=None,
+        enable_llm_detection=True  # ← 关键：启用LLM检测
+    )
+
+    try:
+        print("\n开始分析...")
+        print("=" * 60)
+
+        result = coordinator.process_top_k_with_specific_functions(
+            mmc_error_log,
+            start_func='dw_mci_pltfm_probe',
+            end_func='dw_mci_execute_tuning',
+            k=5
+        )
+
+        # 保存结果
+        output_dir = project_root / 'output'
+        output_dir.mkdir(exist_ok=True)
+
+        with open(output_dir / 'mmc_case_topk_llm.json', 'w', encoding='utf-8') as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+
+        print(f"\n结果已保存到: {output_dir / 'mmc_case_topk_llm.json'}")
+
+        # 显示结果
+        print("\n" + "=" * 60)
+        print("结果:")
+        print("=" * 60)
+        print(f"  找到路径: {result.get('path_count', 0)} 条")
+
+        if result.get('paths'):
+            print("\n路径详情（前3条）:")
+            for idx, path in enumerate(result['paths'][:3]):
+                print(f"  路径#{idx+1}:")
+                print(f"    长度: {path['length']}")
+                print(f"    间接调用: {path['indirect_count']}")
+                print(f"    得分: {path['score']:.2f}")
+
+                # 检查是否使用了LLM检测的间接调用
+                edges = path.get('edges', [])
+                llm_edges = [e for e in edges if isinstance(e, dict) and e.get('bridge', {}).get('method') == 'llm_analysis']
+                if llm_edges:
+                    print(f"    ✓ 使用了 {len(llm_edges)} 个LLM检测的间接调用")
+
+        print("\n" + "=" * 60)
+        print("说明:")
+        print("  - 配置文件指定哪些函数需要LLM分析间接调用")
+        print("  - 预处理阶段：LLM分析源码 → 提取字段名 → 查询图谱ASSIGNED_TO")
+        print("  - BFS阶段：使用缓存的间接调用关系，无需重复调用LLM")
+        print("  - 如果LLM检测失败，自动fallback到Mock数据")
+
+    finally:
+        coordinator.close()
+
+
 def main():
     """主函数"""
-    if len(sys.argv) > 1 and sys.argv[1] == '--direct':
-        # 直接测试KG接口
-        demo_topk_direct()
+    if len(sys.argv) > 1:
+        if sys.argv[1] == '--direct':
+            # 直接测试KG接口
+            demo_topk_direct()
+        elif sys.argv[1] == '--llm':
+            # 测试LLM辅助检测
+            run_mmc_case_with_llm()
+        else:
+            print("用法:")
+            print("  python run_mmc_case_topk.py          # 标准模式")
+            print("  python run_mmc_case_topk.py --direct # 直接测试KG接口")
+            print("  python run_mmc_case_topk.py --llm    # LLM辅助检测模式")
     else:
         # 完整流程测试
         run_mmc_case_topk()

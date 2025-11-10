@@ -21,17 +21,19 @@ from data.mock_indirect_calls import (
 class KnowledgeGraphInterface:
     """知识图谱接口 - 基于JSON文件"""
 
-    def __init__(self, data_dir: str = None):
+    def __init__(self, data_dir: str = None, enable_llm_detection: bool = False):
         """
         初始化知识图谱接口
 
         Args:
             data_dir: 数据文件所在目录
+            enable_llm_detection: 是否启用LLM辅助间接调用检测（预处理模式）
         """
         if data_dir is None:
             data_dir = os.getenv('KG_DATA_DIR', '/data/xuao/code_kg_search/linux_test/data')
 
         self.data_dir = Path(data_dir)
+        self.enable_llm_detection = enable_llm_detection
 
         # 缓存数据
         self.entities = {}  # {entity_type: {name: entity}}
@@ -48,6 +50,10 @@ class KnowledgeGraphInterface:
         # 调用关系图（包含行号信息）
         # {caller_id: [(callee_id, call_line), ...]}
         self.call_graph_with_lines = {}
+
+        # LLM间接调用检测缓存
+        # {func_name: [(target_func, bridge_info), ...]}
+        self.llm_indirect_call_cache = {}
 
         # 加载所有数据
         self._load_all_data()
@@ -551,31 +557,72 @@ class KnowledgeGraphInterface:
         """
         查找函数的间接调用目标
 
+        优先级：
+        1. LLM检测缓存（如果启用）
+        2. Mock数据（fallback）
+
         Args:
             func_name: 函数名
 
         Returns:
             间接调用列表，每项为 (目标函数名, 桥接信息)
         """
-        indirect_calls = []
+        # 1. 优先使用LLM检测缓存
+        if self.enable_llm_detection and func_name in self.llm_indirect_call_cache:
+            llm_callees = self.llm_indirect_call_cache[func_name]
+            if llm_callees:
+                logger.debug(f"函数 {func_name} 使用LLM检测结果: {len(llm_callees)} 个间接调用")
+                return llm_callees
 
-        # ============================================================
-        # TODO: 等图谱修复后，这里应该查询 ASSIGNED_TO 关系
-        # 目前使用 mock 数据进行高效查询
-        # ============================================================
+        # 2. fallback到Mock数据
         mock_callees = get_mock_indirect_callees(func_name)
         if mock_callees:
-            logger.debug(f"函数 {func_name} 有 {len(mock_callees)} 个 mock 间接调用")
+            logger.debug(f"函数 {func_name} 使用Mock数据: {len(mock_callees)} 个间接调用")
             return mock_callees
 
-        # 如果图谱有 ASSIGNED_TO 关系，在这里查询
-        # TODO: 实现基于 ASSIGNED_TO 关系的查询
-        # if 'ASSIGNED_TO' in self.relations:
-        #     for rel in self.relations['ASSIGNED_TO']:
-        #         if matches_async_or_fp_pattern(rel, func_name):
-        #             indirect_calls.append(...)
+        return []
 
-        return indirect_calls
+    def preprocess_llm_indirect_calls(self, config_file: str = None):
+        """
+        预处理：使用LLM检测配置中指定的函数的间接调用
+
+        Args:
+            config_file: 配置文件路径（YAML格式）
+                        如果为None，使用默认配置文件
+        """
+        if not self.enable_llm_detection:
+            logger.warning("LLM检测未启用，跳过预处理")
+            return
+
+        # 加载配置
+        if config_file is None:
+            config_file = Path(__file__).parent.parent / 'config' / 'indirect_call_detection.yaml'
+
+        if not Path(config_file).exists():
+            logger.warning(f"配置文件不存在: {config_file}")
+            return
+
+        import yaml
+        with open(config_file, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+
+        func_names = config.get('functions_need_llm_detection', [])
+        if not func_names:
+            logger.info("配置中没有需要LLM检测的函数")
+            return
+
+        logger.info(f"开始预处理 {len(func_names)} 个函数的间接调用...")
+
+        # 导入LLM检测器
+        from utils.llm_indirect_call_detector import preprocess_indirect_calls
+
+        # 批量检测
+        self.llm_indirect_call_cache = preprocess_indirect_calls(
+            kg_interface=self,
+            func_names=func_names
+        )
+
+        logger.info(f"预处理完成！缓存了 {sum(len(v) for v in self.llm_indirect_call_cache.values())} 条间接调用关系")
 
     def find_call_path_with_indirect(self, start: str, end: str, max_depth: int = 10, debug: bool = False) -> Optional[Dict]:
         """
