@@ -160,9 +160,18 @@ class KnowledgeGraphInterface:
         func_by_name = defaultdict(lambda: {'decls': [], 'impls': []})
 
         # 按名称分组，区分声明和实现
-        for func_name, func_entity in self.entities['FUNCTION'].items():
-            func_id = func_entity.get('id')
-            is_decl = func_entity.get('is_declaration', False)
+        # 注意：必须遍历entity_by_id而不是entities['FUNCTION']
+        # 因为entities['FUNCTION']按名称索引，同名函数会被覆盖
+        for entity_id, entity in self.entity_by_id.items():
+            if entity.get('type') != 'FUNCTION':
+                continue
+
+            func_name = entity.get('name')
+            func_id = entity.get('id')
+            is_decl = entity.get('is_declaration', False)
+
+            if not func_name or not func_id:
+                continue
 
             if is_decl:
                 func_by_name[func_name]['decls'].append(func_id)
