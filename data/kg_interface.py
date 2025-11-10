@@ -58,9 +58,9 @@ class KnowledgeGraphInterface:
         """加载所有JSON文件"""
         logger.info("正在加载数据...")
 
-        # 检查是否使用合并格式（temp_en.json + relations.json）
-        entity_file = self.data_dir / 'temp_en.json'
-        relation_file = self.data_dir / 'relations.json'
+        # 检查是否使用合并格式（entity.json + relation.json）
+        entity_file = self.data_dir / 'entity.json'
+        relation_file = self.data_dir / 'relation.json'
 
         if entity_file.exists() and relation_file.exists():
             logger.info("检测到合并格式数据文件")
@@ -70,7 +70,7 @@ class KnowledgeGraphInterface:
             self._load_separated_format()
 
     def _load_merged_format(self, entity_file: Path, relation_file: Path):
-        """加载合并格式的数据（temp_en.json + relations.json）"""
+        """加载合并格式的数据（entity.json + relation.json）"""
         # 加载实体
         logger.info(f"加载实体文件: {entity_file.name}")
         with open(entity_file, 'r', encoding='utf-8') as f:
