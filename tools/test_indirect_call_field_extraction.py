@@ -263,22 +263,55 @@ def test_single_function(
     print(f"测试函数: {func_name}")
     print(f"{'='*80}")
 
-    # 1. 在图谱中查找函数
+    # 1. 在图谱中查找函数（处理同名函数）
     print(f"\n[1/4] 在图谱中查找函数...")
-    func_entity = kg.find_function(func_name)
 
-    if not func_entity:
+    # 获取该函数名的所有ID
+    all_func_ids = kg.func_name_to_ids.get(func_name, [])
+
+    if not all_func_ids:
         print(f"  ✗ 函数 {func_name} 不存在")
         return
 
-    print(f"  ✓ 找到函数: {func_name}")
+    print(f"  ✓ 找到函数: {func_name} ({len(all_func_ids)} 个实例)")
+
+    # 找到有源码的实体（优先选择实现，即 is_declaration=False）
+    func_entity = None
+    for func_id in all_func_ids:
+        entity = kg.entity_by_id.get(func_id)
+        if not entity:
+            continue
+
+        is_decl = entity.get('is_declaration', False)
+        source_file = entity.get('source_file', '')
+
+        print(f"    - ID {func_id}: {source_file} (is_declaration={is_decl})")
+
+        # 优先选择实现（非声明）
+        if not is_decl:
+            func_entity = entity
+            print(f"      → 选择此实现")
+            break
+
+    # 如果没有实现，使用第一个
+    if not func_entity and all_func_ids:
+        func_entity = kg.entity_by_id.get(all_func_ids[0])
+        print(f"      → 未找到实现，使用第一个")
+
+    if not func_entity:
+        print(f"  ✗ 无法获取函数实体")
+        return
+
+    print(f"  ✓ 最终选择:")
     print(f"    ID: {func_entity.get('id')}")
     print(f"    文件: {func_entity.get('source_file', 'N/A')}")
+    print(f"    is_declaration: {func_entity.get('is_declaration', 'N/A')}")
 
     # 2. 获取函数源码
     print(f"\n[2/4] 获取函数源码...")
 
-    source_code = kg.get_function_code(func_name)
+    # 尝试从实体中获取源码
+    source_code = func_entity.get('code') or func_entity.get('body')
 
     if not source_code:
         print(f"  ✗ 无法获取源码")
