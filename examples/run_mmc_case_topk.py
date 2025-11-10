@@ -164,47 +164,66 @@ mmc0: error -1 whilst initialising MMC card
     )
 
     try:
-        print("\n开始分析...")
+        # ========== 方式1：自动推断起止点，返回Top-K路径 ==========
+        print("\n[方式1] 自动推断 + Top-5路径 (LLM辅助):")
         print("=" * 60)
-
-        result = coordinator.process_top_k_with_specific_functions(
+        result1 = coordinator.process_top_k(
             mmc_error_log,
-            start_func='dw_mci_pltfm_probe',
-            end_func='dw_mci_execute_tuning',
-            k=5
+            k=5  # 返回最多5条路径
         )
 
         # 保存结果
         output_dir = project_root / 'output'
         output_dir.mkdir(exist_ok=True)
 
-        with open(output_dir / 'mmc_case_topk_llm.json', 'w', encoding='utf-8') as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
+        with open(output_dir / 'mmc_case_topk_llm_auto.json', 'w', encoding='utf-8') as f:
+            json.dump(result1, f, indent=2, ensure_ascii=False)
 
-        print(f"\n结果已保存到: {output_dir / 'mmc_case_topk_llm.json'}")
+        print(f"\n结果已保存到: {output_dir / 'mmc_case_topk_llm_auto.json'}")
 
-        # 显示结果
-        print("\n" + "=" * 60)
-        print("结果:")
+        # ========== 方式2：指定起止点 + Top-K路径 ==========
+        print("\n\n[方式2] 指定起止点 + Top-5路径 (LLM辅助):")
         print("=" * 60)
-        print(f"  找到路径: {result.get('path_count', 0)} 条")
+        result2 = coordinator.process_top_k_with_specific_functions(
+            mmc_error_log,
+            start_func='dw_mci_pltfm_probe',
+            end_func='dw_mci_execute_tuning',
+            k=5
+        )
 
-        if result.get('paths'):
-            print("\n路径详情（前3条）:")
-            for idx, path in enumerate(result['paths'][:3]):
-                print(f"  路径#{idx+1}:")
-                print(f"    长度: {path['length']}")
-                print(f"    间接调用: {path['indirect_count']}")
-                print(f"    得分: {path['score']:.2f}")
+        with open(output_dir / 'mmc_case_topk_llm_specific.json', 'w', encoding='utf-8') as f:
+            json.dump(result2, f, indent=2, ensure_ascii=False)
+
+        print(f"\n结果已保存到: {output_dir / 'mmc_case_topk_llm_specific.json'}")
+
+        # 显示对比
+        print("\n\n" + "=" * 60)
+        print("路径数量对比:")
+        print("=" * 60)
+        print(f"  方式1 (自动推断):     {result1.get('path_count', 0)} 条路径")
+        print(f"  方式2 (指定起止点):   {result2.get('path_count', 0)} 条路径")
+
+        # 显示call_line排序信息和LLM使用情况
+        if result2.get('paths'):
+            print("\n" + "=" * 60)
+            print("路径详情（方式2，前3条）:")
+            print("=" * 60)
+            for idx, path in enumerate(result2['paths'][:3]):
+                avg_line = path.get('avg_call_line', 0)
+                print(f"  路径#{idx+1}: 长度={path['length']}, "
+                      f"间接调用={path['indirect_count']}, "
+                      f"平均调用行号={avg_line:.1f}, "
+                      f"得分={path['score']:.2f}")
 
                 # 检查是否使用了LLM检测的间接调用
                 edges = path.get('edges', [])
                 llm_edges = [e for e in edges if isinstance(e, dict) and e.get('bridge', {}).get('method') == 'llm_analysis']
                 if llm_edges:
-                    print(f"    ✓ 使用了 {len(llm_edges)} 个LLM检测的间接调用")
+                    print(f"              ✓ 使用了 {len(llm_edges)} 个LLM检测的间接调用")
 
         print("\n" + "=" * 60)
         print("说明:")
+        print("=" * 60)
         print("  - 配置文件指定哪些函数需要LLM分析间接调用")
         print("  - 预处理阶段：LLM分析源码 → 提取字段名 → 查询图谱ASSIGNED_TO")
         print("  - BFS阶段：使用缓存的间接调用关系，无需重复调用LLM")
