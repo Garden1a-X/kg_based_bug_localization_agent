@@ -313,13 +313,44 @@ def test_single_function(
     # 尝试从实体中获取源码
     source_code = func_entity.get('code') or func_entity.get('body')
 
+    # 如果实体中没有存储源码，从源文件读取
+    if not source_code:
+        source_file = func_entity.get('source_file')
+        start_line = func_entity.get('start_line')
+        end_line = func_entity.get('end_line')
+
+        if source_file and start_line and end_line:
+            print(f"  实体中无源码，尝试从文件读取...")
+            print(f"    文件: {source_file}")
+            print(f"    行范围: {start_line}-{end_line}")
+
+            try:
+                with open(source_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                    # 注意：行号从1开始，但列表索引从0开始
+                    source_code = ''.join(lines[start_line-1:end_line])
+                print(f"  ✓ 从文件读取成功")
+            except FileNotFoundError:
+                print(f"  ✗ 源文件不存在: {source_file}")
+                return
+            except Exception as e:
+                print(f"  ✗ 读取源文件失败: {e}")
+                return
+        else:
+            print(f"  ✗ 实体缺少源文件信息")
+            print(f"    source_file: {source_file}")
+            print(f"    start_line: {start_line}")
+            print(f"    end_line: {end_line}")
+            return
+
     if not source_code:
         print(f"  ✗ 无法获取源码")
         return
 
     print(f"  ✓ 获取源码成功")
     print(f"    代码长度: {len(source_code)} 字符")
-    print(f"    前100字符: {source_code[:100]}...")
+    print(f"    代码行数: {len(source_code.splitlines())} 行")
+    print(f"    前150字符: {source_code[:150]}...")
 
     # 3. LLM提取间接调用字段
     print(f"\n[3/4] LLM提取间接调用字段...")
