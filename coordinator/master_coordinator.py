@@ -17,7 +17,7 @@ console = Console()
 class MasterCoordinator:
     """主协调器"""
 
-    def __init__(self, data_dir: str = None, llm_client=None, enable_llm_detection: bool = False):
+    def __init__(self, data_dir: str = None, llm_client=None, enable_llm_detection: bool = False, enable_llm_log_analysis: bool = False):
         """
         初始化协调器
 
@@ -25,6 +25,7 @@ class MasterCoordinator:
             data_dir: 数据文件目录
             llm_client: LLM客户端（可选）
             enable_llm_detection: 是否启用LLM辅助间接调用检测（预处理模式）
+            enable_llm_log_analysis: 是否启用LLM辅助日志分析
         """
         logger.info("初始化主协调器...")
 
@@ -37,7 +38,7 @@ class MasterCoordinator:
             self.kg.preprocess_llm_indirect_calls()
 
         # 创建各个Agent
-        self.log_parser = LogParserAgent()
+        self.log_parser = LogParserAgent(enable_llm=enable_llm_log_analysis)
         self.entity_locator = EntityLocatorAgent(self.kg)
         self.chain_tracer = CallChainTracerAgent(self.kg, llm_client)
 

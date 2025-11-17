@@ -5,15 +5,17 @@
 import re
 from typing import Dict, List
 from agents.base_agent import BaseAgent
+from data.mock_indirect_calls import MOCK_FAIL_MESSAGES, _extract_message_pattern
 
 
 class LogParserAgent(BaseAgent):
-    """日志解析Agent - 规则为主"""
-    
-    def __init__(self):
+    """日志解析Agent - 基于FAIL_MESSAGE实体匹配"""
+
+    def __init__(self, enable_llm: bool = False):
         super().__init__("LogParser")
-        
-        # 定义常见的错误模式
+        self.enable_llm = enable_llm
+
+        # 定义常见的错误模式（保留用于fallback）
         self.error_patterns = {
             'error_message': r'(error|Error|ERROR)[:\s]+(.+?)(?:\n|$)',
             'error_code': r'error[:\s]+(-?\d+)',
@@ -21,19 +23,19 @@ class LogParserAgent(BaseAgent):
             'file_path': r'([/\w]+\.c)',
             'line_number': r':(\d+):',
         }
-    
+
     def execute(self, log_text: str) -> Dict:
         """
         解析日志文本
-        
+
         Args:
             log_text: 原始日志文本
-            
+
         Returns:
             结构化的日志信息
         """
         self.log_start("解析错误日志")
-        
+
         result = {
             'raw_log': log_text,
             'error_messages': self._extract_error_messages(log_text),
@@ -42,10 +44,10 @@ class LogParserAgent(BaseAgent):
             'files': self._extract_files(log_text),
             'lines': self._extract_line_numbers(log_text)
         }
-        
+
         self.log_success(f"提取到 {len(result['error_messages'])} 个错误消息")
         self.log_info(f"涉及函数: {result['functions']}")
-        
+
         return result
     
     def _extract_error_messages(self, log_text: str) -> List[str]:
@@ -86,10 +88,100 @@ class LogParserAgent(BaseAgent):
         """提取行号"""
         lines = re.findall(r':(\d+):', log_text)
         return [int(l) for l in lines]
-    
+
+    def _match_log_line_to_fail_message(self, log_line: str, fail_messages: dict) -> list:
+        """
+        尝试将一行日志匹配到FAIL_MESSAGE实体
+
+        Args:
+            log_line: 单行日志文本
+            fail_messages: FAIL_MESSAGE实体字典
+
+        Returns:
+            匹配到的消息列表 [(msg_id, msg_data, matched_text, similarity), ...]
+        """
+        matches = []
+
+        for msg_id, msg_data in fail_messages.items():
+            # 从name字段提取匹配模式
+            pattern = _extract_message_pattern(msg_data.get('name', ''))
+            if not pattern:
+                continue
+
+            # 尝试匹配
+            match_obj = re.search(pattern, log_line, re.IGNORECASE)
+            if match_obj:
+                matched_text = match_obj.group(0)
+
+                # 计算相似度（匹配长度占日志行的比例）
+                similarity = len(matched_text) / len(log_line.strip()) if log_line.strip() else 0
+
+                matches.append((msg_id, msg_data, matched_text, similarity))
+
+        # 按相似度排序（从高到低）
+        matches.sort(key=lambda x: x[3], reverse=True)
+
+        return matches
+
+    def _analyze_log_by_lines(self, log_text: str) -> dict:
+        """
+        逐行分析日志，匹配FAIL_MESSAGE
+
+        Args:
+            log_text: 完整日志文本
+
+        Returns:
+            分析结果
+        """
+        lines = [line.strip() for line in log_text.strip().split('\n') if line.strip()]
+
+        result = {
+            'total_lines': len(lines),
+            'line_matches': [],
+            'all_functions': []
+        }
+
+        for idx, line in enumerate(lines, 1):
+            matches = self._match_log_line_to_fail_message(line, MOCK_FAIL_MESSAGES)
+
+            if matches:
+                # 取最佳匹配（相似度最高）
+                best_msg_id, best_msg, matched_text, similarity = matches[0]
+                func_name = best_msg.get('scope')
+
+                # 记录所有候选函数（用于LLM分析）
+                candidates = []
+                for msg_id, msg, txt, sim in matches:
+                    candidates.append({
+                        'function': msg.get('scope'),
+                        'message_id': msg_id,
+                        'source_file': msg.get('source_file'),
+                        'start_line': msg.get('start_line'),
+                        'similarity': sim,
+                        'matched_text': txt
+                    })
+
+                result['line_matches'].append({
+                    'line_number': idx,
+                    'log_line': line,
+                    'matched_text': matched_text,
+                    'similarity': similarity,
+                    'function': func_name,
+                    'message_id': best_msg_id,
+                    'source_file': best_msg.get('source_file'),
+                    'start_line': best_msg.get('start_line'),
+                    'candidates': candidates  # 所有候选函数
+                })
+
+                if func_name and func_name not in result['all_functions']:
+                    result['all_functions'].append(func_name)
+
+        return result
+
     def parse_mmc_log(self, log_text: str) -> Dict:
         """
         专门针对MMC日志的解析（甲方案例）
+        使用基于FAIL_MESSAGE实体的匹配方法
 
         Args:
             log_text: MMC错误日志
@@ -97,51 +189,115 @@ class LogParserAgent(BaseAgent):
         Returns:
             解析结果，包含推断的起点和终点
         """
-        basic_result = self.execute(log_text)
+        self.log_start("解析MMC错误日志")
 
-        # MMC特定的解析逻辑
-        result = basic_result.copy()
+        # 使用新的基于FAIL_MESSAGE的匹配方法
+        matching_result = self._analyze_log_by_lines(log_text)
 
-        # ====================================================================
-        # Mock: 从简单日志推断关键函数
-        # TODO: 未来替换为真实的LLM推断或更复杂的规则
-        # ====================================================================
-        key_functions = []
+        # 提取关键函数
+        all_functions = matching_result.get('all_functions', [])
+        matched_count = len(matching_result.get('line_matches', []))
 
-        # 规则1: "ALL phases bad!" -> dw_mci_hi3660_execute_tuning
-        if "ALL phases bad" in log_text or "phases bad" in log_text:
-            key_functions.append('dw_mci_hi3660_execute_tuning')
+        self.log_success(f"匹配到 {matched_count} 行日志")
+        self.log_info(f"涉及函数: {all_functions}")
 
-        # 规则2: "tuning execution failed" -> mmc_execute_tuning
-        if "tuning execution failed" in log_text:
-            key_functions.append('mmc_execute_tuning')
+        # 构建结果
+        result = {
+            'raw_log': log_text,
+            'line_matches': matching_result.get('line_matches', []),
+            'key_functions': all_functions,  # 所有匹配到的函数
+            'functions': all_functions,  # 保持向后兼容
+        }
 
-        # 规则3: "whilst initialising MMC card" -> mmc_attach_mmc
-        if "whilst initialising MMC card" in log_text or "initialising MMC" in log_text:
-            key_functions.append('mmc_attach_mmc')
+        # Mock起始点（暂时固定为probe函数）
+        result['inferred_entry'] = 'dw_mci_pltfm_probe'
 
-        # 将识别的关键函数添加到结果中
-        if key_functions:
-            result['key_functions'] = key_functions
-            self.log_info(f"从日志识别出 {len(key_functions)} 个关键函数: {key_functions}")
-
-        # 推断入口函数（通常是 probe 函数）
-        entry_candidates = [f for f in result['functions'] if 'probe' in f.lower()]
-        if entry_candidates:
-            result['inferred_entry'] = entry_candidates[0]
+        # 推断错误点：取最底层的函数（日志的第一个匹配函数）
+        if all_functions:
+            result['inferred_error_point'] = all_functions[0]
         else:
-            result['inferred_entry'] = 'dw_mci_pltfm_probe'  # 默认
+            result['inferred_error_point'] = None
 
-        # 推断错误点（通常包含execute, tuning等关键词）
-        error_candidates = [f for f in result['functions']
-                          if any(kw in f.lower() for kw in ['execute', 'tuning', 'init'])]
-        if error_candidates:
-            result['inferred_error_point'] = error_candidates[0]
+        # 推断中间节点：除了第一个之外的所有函数
+        if len(all_functions) > 1:
+            result['intermediate_functions'] = all_functions[1:]
         else:
-            # 从关键函数推断（取最深层的）
-            if key_functions:
-                result['inferred_error_point'] = key_functions[0]  # 第一个通常是最深层的
-            elif 'tuning' in log_text.lower():
-                result['inferred_error_point'] = 'dw_mci_execute_tuning'
+            result['intermediate_functions'] = []
+
+        # 如果启用了LLM，调用LLM进行增强分析
+        if self.enable_llm:
+            llm_result = self._analyze_with_llm(log_text, matching_result)
+            if llm_result and not llm_result.get('error'):
+                # 使用LLM的结果覆盖推断
+                if llm_result.get('end_entity'):
+                    result['inferred_error_point'] = llm_result['end_entity']
+                if llm_result.get('intermediate_entities'):
+                    result['intermediate_functions'] = llm_result['intermediate_entities']
+                result['llm_analysis'] = llm_result
 
         return result
+
+    def _analyze_with_llm(self, log_text: str, matching_result: dict) -> dict:
+        """
+        使用LLM分析日志（可选）
+
+        Args:
+            log_text: 完整日志文本
+            matching_result: 模式匹配结果
+
+        Returns:
+            LLM分析结果
+        """
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key="", base_url="http://10.12.208.86:8502")
+
+            # 构建提示词（简化版本）
+            prompt = f"""你是一个Linux内核驱动错误分析专家。请分析以下错误日志：
+
+## 错误日志
+```
+{log_text.strip()}
+```
+
+## 匹配到的函数
+{', '.join(matching_result.get('all_functions', []))}
+
+请推断：
+1. 错误点函数（最底层出错的函数）
+2. 中间关键函数
+
+以JSON格式返回：
+{{
+  "end_entity": "错误点函数名",
+  "intermediate_entities": ["中间函数1", "中间函数2"]
+}}
+"""
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "你是一个Linux内核驱动错误分析专家。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=500,
+                timeout=180
+            )
+
+            llm_response = response.choices[0].message.content
+
+            # 解析JSON
+            import json
+            json_text = llm_response
+            if "```json" in json_text:
+                json_text = json_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in json_text:
+                json_text = json_text.split("```")[1].split("```")[0].strip()
+
+            return json.loads(json_text)
+
+        except Exception as e:
+            self.log_info(f"LLM分析失败: {e}")
+            return {"error": str(e)}

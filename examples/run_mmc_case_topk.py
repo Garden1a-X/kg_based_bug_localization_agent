@@ -12,7 +12,6 @@ sys.path.insert(0, str(project_root))
 
 from coordinator.master_coordinator import MasterCoordinator
 from utils.logger import setup_logger, print_header
-from test_log_matching import extract_functions_from_log
 import json
 
 # 配置日志
@@ -269,7 +268,7 @@ mmc0: error -1 whilst initialising MMC card
 
 
 def run_mmc_case_with_log_matching():
-    """运行MMC案例 - 使用日志匹配提取起止点"""
+    """运行MMC案例 - 使用新的日志匹配方法"""
 
     print_header("运行MMC案例 - 日志匹配 + Top-K路径搜索")
 
@@ -280,46 +279,19 @@ mmc0: tuning execution failed: -1
 mmc0: error -1 whilst initialising MMC card
     """
 
-    print("\n错误日志:")
-    print("=" * 60)
-    print(mmc_error_log.strip())
-    print("=" * 60)
-
-    # 步骤1: 使用日志匹配提取关键函数
-    print("\n[步骤1] 日志匹配 - 提取关键函数")
-    print("=" * 60)
-
-    log_analysis = extract_functions_from_log(mmc_error_log, use_llm=False)
-
-    start_func = log_analysis['start_entity']
-    end_func = log_analysis['end_entity']
-    intermediate_funcs = log_analysis['intermediate_entities']
-
-    print(f"  起始点 (Mock): {start_func}")
-    print(f"  错误点: {end_func}")
-    print(f"  中间点: {intermediate_funcs}")
-    print(f"  所有匹配函数: {log_analysis['all_functions']}")
-
-    # 步骤2: 使用提取的函数进行路径搜索
-    print("\n[步骤2] 路径搜索 - Top-K最优路径")
-    print("=" * 60)
-
     # 指定数据目录
     data_dir = "/data/xuao/code_kg_search/linux_test/data/mmc"
     if not os.path.exists(data_dir):
         data_dir = "/data/xuao/code_kg_search/linux_test/data"
         print(f"注意: MMC子图不存在，使用完整图谱 ({data_dir})")
 
-    # 创建协调器
-    coordinator = MasterCoordinator(data_dir=data_dir, llm_client=None)
+    # 创建协调器（新的日志匹配方法已集成到 LogParserAgent）
+    coordinator = MasterCoordinator(data_dir=data_dir, llm_client=None, enable_llm_log_analysis=False)
 
     try:
-        # 使用日志匹配得到的函数进行路径搜索
-        result = coordinator.process_top_k_with_specific_functions(
+        # 使用新的 process_top_k 方法（自动调用日志匹配）
+        result = coordinator.process_top_k(
             mmc_error_log,
-            start_func=start_func,
-            end_func=end_func,
-            intermediate_funcs=intermediate_funcs,
             k=5
         )
 
@@ -329,13 +301,6 @@ mmc0: error -1 whilst initialising MMC card
 
         output_file = output_dir / 'mmc_case_log_matching.json'
         with open(output_file, 'w', encoding='utf-8') as f:
-            # 添加日志分析结果到输出
-            result['log_analysis'] = {
-                'start_entity': start_func,
-                'end_entity': end_func,
-                'intermediate_entities': intermediate_funcs,
-                'all_matched_functions': log_analysis['all_functions']
-            }
             json.dump(result, f, indent=2, ensure_ascii=False)
 
         print(f"\n结果已保存到: {output_file}")
@@ -362,7 +327,7 @@ mmc0: error -1 whilst initialising MMC card
         print("\n" + "=" * 60)
         print("流程说明:")
         print("=" * 60)
-        print("  1. 日志匹配：从错误日志中提取关键函数")
+        print("  1. 日志匹配：基于FAIL_MESSAGE实体的精确匹配")
         print("  2. Mock起始点：暂时使用 dw_mci_pltfm_probe 作为入口")
         print("  3. 路径搜索：在知识图谱中搜索最优调用路径")
         print("  4. 排序策略：考虑路径长度、间接调用数量、调用行号")
