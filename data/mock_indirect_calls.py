@@ -50,6 +50,18 @@ MOCK_FUNCTION_POINTER_CALLS = {
     # 可以添加更多已知的函数指针关系
 }
 
+# 异步调用 ASSIGNED_TO 关系（字段赋值）
+# 格式：{field_name: [function_names]}
+# 表示哪些函数被赋值给了某个字段
+MOCK_ASYNC_ASSIGNED_TO = {
+    # detect 字段被赋值为 mmc_rescan
+    # 例如：INIT_DELAYED_WORK(&host->detect, mmc_rescan)
+    "detect": ["mmc_rescan"],
+
+    # 可以添加更多字段赋值关系
+    # "work": ["some_callback_func"],
+}
+
 
 def get_mock_async_bridge(caller: str, callee: str) -> dict:
     """
@@ -157,4 +169,19 @@ def get_mock_indirect_callees(caller: str) -> list:
             indirect_callees.append((callee, info))
 
     return indirect_callees
+
+
+def get_mock_async_assigned_to(field_name: str) -> list:
+    """
+    获取 mock 的异步调用 ASSIGNED_TO 关系
+
+    TODO: 等图谱修复后删除此函数
+
+    Args:
+        field_name: 字段名（如 'detect'）
+
+    Returns:
+        被赋值给该字段的函数名列表（如 ['mmc_rescan']）
+    """
+    return MOCK_ASYNC_ASSIGNED_TO.get(field_name, [])
 

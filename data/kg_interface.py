@@ -14,7 +14,8 @@ from pathlib import Path
 from data.mock_indirect_calls import (
     get_mock_async_bridge,
     get_mock_function_pointer_bridge,
-    get_mock_indirect_callees
+    get_mock_indirect_callees,
+    get_mock_async_assigned_to
 )
 
 
@@ -51,9 +52,13 @@ class KnowledgeGraphInterface:
         # {caller_id: [(callee_id, call_line), ...]}
         self.call_graph_with_lines = {}
 
-        # LLM间接调用检测缓存
+        # LLM间接调用检测缓存（函数指针）
         # {func_name: [(target_func, bridge_info), ...]}
         self.llm_indirect_call_cache = {}
+
+        # 异步调用检测相关
+        self.async_functions = set()  # 异步函数集合（基于关键字/配置识别）
+        self.async_call_cache = {}    # 异步调用缓存 {(caller, callee): [(target, bridge_info), ...]}
 
         # 加载所有数据
         self._load_all_data()
@@ -582,9 +587,271 @@ class KnowledgeGraphInterface:
 
         return []
 
+    def _detect_async_call(self, caller_name: str, callee_name: str) -> List[tuple]:
+        """
+        检测异步调用关系
+
+        流程：
+        1. 检查缓存
+        2. LLM分析 caller 的源码，提取调用 callee 时的参数字段
+        3. 查询 ASSIGNED_TO
+        4. 缓存结果
+
+        Args:
+            caller_name: 调用者函数名（如 _mmc_detect_change）
+            callee_name: 被调用者函数名（如 mmc_schedule_delayed_work）
+
+        Returns:
+            [(async_target, bridge_info), ...]
+        """
+        # 1. 检查缓存
+        cache_key = (caller_name, callee_name)
+        if cache_key in self.async_call_cache:
+            logger.debug(f"使用缓存的异步调用: {caller_name} -> {callee_name}")
+            return self.async_call_cache[cache_key]
+
+        # 2. 获取 caller 的源码
+        caller_source = self._get_function_source(caller_name)
+        if not caller_source:
+            logger.debug(f"无法获取 {caller_name} 的源码，跳过异步调用检测")
+            self.async_call_cache[cache_key] = []
+            return []
+
+        # 3. LLM提取参数字段名
+        field_name = self._llm_extract_async_parameter(caller_name, callee_name, caller_source)
+
+        if not field_name:
+            logger.debug(f"未能提取 {caller_name} 调用 {callee_name} 的字段名")
+            self.async_call_cache[cache_key] = []
+            return []
+
+        logger.info(f"提取到字段名: {field_name} (从 {caller_name} 调用 {callee_name})")
+
+        # 4. 查询 ASSIGNED_TO
+        async_targets = self._query_assigned_to_for_async(field_name)
+
+        # 5. 缓存
+        self.async_call_cache[cache_key] = async_targets
+        return async_targets
+
+    def _get_function_source(self, func_name: str) -> Optional[str]:
+        """
+        获取函数源代码
+
+        Args:
+            func_name: 函数名
+
+        Returns:
+            函数源代码，失败返回None
+        """
+        # 获取所有同名函数ID
+        all_func_ids = self.func_name_to_ids.get(func_name, [])
+        if not all_func_ids:
+            return None
+
+        # 优先选择实现（非声明）
+        func_entity = None
+        for func_id in all_func_ids:
+            entity = self.entity_by_id.get(func_id)
+            if not entity:
+                continue
+
+            is_decl = entity.get('is_declaration', False)
+            if not is_decl:
+                func_entity = entity
+                break
+
+        # 如果没有实现，使用第一个
+        if not func_entity and all_func_ids:
+            func_entity = self.entity_by_id.get(all_func_ids[0])
+
+        if not func_entity:
+            return None
+
+        # 尝试从实体获取源码
+        source_code = func_entity.get('code') or func_entity.get('body')
+
+        # 如果没有，从源文件读取
+        if not source_code:
+            source_file = func_entity.get('source_file')
+            start_line = func_entity.get('start_line')
+            end_line = func_entity.get('end_line')
+
+            if source_file and start_line and end_line:
+                try:
+                    with open(source_file, 'r', encoding='utf-8', errors='ignore') as f:
+                        lines = f.readlines()
+                        source_code = ''.join(lines[start_line-1:end_line])
+                except Exception as e:
+                    logger.debug(f"读取源文件失败: {e}")
+                    return None
+
+        return source_code
+
+    def _llm_extract_async_parameter(self, caller_name: str, callee_name: str, caller_source: str) -> Optional[str]:
+        """
+        LLM分析调用者源码，提取work字段名
+
+        Args:
+            caller_name: 调用者函数名
+            callee_name: 被调用者函数名
+            caller_source: 调用者源代码
+
+        Returns:
+            字段名（如 'detect'），如果未找到则返回 None
+        """
+        from openai import OpenAI
+
+        client = OpenAI(api_key="", base_url="http://10.12.208.86:8502")
+
+        prompt = f"""分析以下C函数，找到它调用 {callee_name} 时传入的work参数。
+
+函数名: {caller_name}
+源代码:
+```c
+{caller_source}
+```
+
+任务：
+找到调用 {callee_name}(...) 的代码行，提取第一个参数（通常是&var形式）。
+如果参数是 &host->detect，则字段名是 detect。
+如果参数是 &work，则字段名是 work。
+
+返回JSON格式：
+{{
+  "found": true/false,
+  "call_expression": "完整的调用表达式",
+  "first_parameter": "第一个参数的完整形式（如 &host->detect）",
+  "field_name": "提取的字段名（如 detect）"
+}}
+
+如果没找到调用，返回：
+{{
+  "found": false
+}}
+
+只返回JSON，不要其他说明。"""
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a C code analyzer."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=800,
+                timeout=180
+            )
+
+            content = response.choices[0].message.content.strip()
+
+            # 解析JSON
+            if '```json' in content:
+                content = content.split('```json')[1].split('```')[0].strip()
+            elif '```' in content:
+                content = content.split('```')[1].split('```')[0].strip()
+
+            import json
+            result = json.loads(content)
+
+            if not result.get('found', False):
+                return None
+
+            field_name = result.get('field_name')
+            return field_name
+
+        except Exception as e:
+            logger.error(f"LLM提取参数失败: {e}")
+            return None
+
+    def _query_assigned_to_for_async(self, field_name: str) -> List[tuple]:
+        """
+        查询哪些函数被赋值给指定字段（异步调用）
+
+        处理同名实体问题：
+        1. 找到所有名为 field_name 的 FIELD 实体
+        2. 查询 ASSIGNED_TO 关系（head=field_id, tail=function_id）
+        3. 返回 target 函数列表
+
+        Args:
+            field_name: 字段名
+
+        Returns:
+            [(target_func, bridge_info), ...]
+        """
+        # 先尝试图谱查询
+        # 1. 找到所有名为 field_name 的 FIELD 实体
+        field_ids = []
+        for entity_id, entity in self.entity_by_id.items():
+            if entity.get('type') == 'FIELD' and entity.get('name') == field_name:
+                field_ids.append(entity_id)
+
+        if not field_ids:
+            logger.debug(f"未找到名为 {field_name} 的 FIELD 实体")
+        else:
+            logger.debug(f"找到 {len(field_ids)} 个名为 {field_name} 的 FIELD 实体")
+
+        # 2. 构建 field_id 集合用于快速查询
+        field_id_set = set(field_ids)
+
+        # 3. 查询 ASSIGNED_TO 关系
+        assigned_to_relations = self.relations.get('ASSIGNED_TO', [])
+        target_function_ids = []
+
+        for rel in assigned_to_relations:
+            head_id = rel.get('head')
+            tail_id = rel.get('tail')
+
+            # ASSIGNED_TO: head=FIELD_ID, tail=FUNCTION_ID
+            if head_id in field_id_set:
+                target_function_ids.append(tail_id)
+
+        if not target_function_ids:
+            logger.debug(f"未在图谱中找到字段 {field_name} 的 ASSIGNED_TO 关系")
+        else:
+            logger.debug(f"在图谱中找到 {len(target_function_ids)} 个赋值目标")
+
+        # 4. 获取目标函数名
+        targets = []
+        for func_id in target_function_ids:
+            func_entity = self.entity_by_id.get(func_id)
+            if func_entity:
+                target_func_name = func_entity.get('name')
+                targets.append((
+                    target_func_name,
+                    {
+                        'bridge_type': 'async',
+                        'bridge_entity': field_name,
+                        'init_func': 'INIT_DELAYED_WORK',
+                        'method': 'llm_analysis'
+                    }
+                ))
+
+        # 5. Fallback 到 Mock 数据
+        if not targets:
+            logger.debug(f"图谱查询失败，尝试 Mock 数据")
+            mock_targets = get_mock_async_assigned_to(field_name)
+            for target_name in mock_targets:
+                targets.append((
+                    target_name,
+                    {
+                        'bridge_type': 'async',
+                        'bridge_entity': field_name,
+                        'init_func': 'INIT_DELAYED_WORK',
+                        'method': 'mock_data'
+                    }
+                ))
+
+            if targets:
+                logger.info(f"使用 Mock 数据：字段 {field_name} -> {[t[0] for t in targets]}")
+
+        return targets
+
     def preprocess_llm_indirect_calls(self, config_file: str = None):
         """
         预处理：使用LLM检测配置中指定的函数的间接调用
+        同时识别异步函数列表
 
         Args:
             config_file: 配置文件路径（YAML格式）
@@ -606,23 +873,43 @@ class KnowledgeGraphInterface:
         with open(config_file, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
 
+        # ========== 1. 函数指针检测（已有） ==========
         func_names = config.get('functions_need_llm_detection', [])
-        if not func_names:
-            logger.info("配置中没有需要LLM检测的函数")
-            return
+        if func_names:
+            logger.info(f"开始预处理 {len(func_names)} 个函数的间接调用...")
 
-        logger.info(f"开始预处理 {len(func_names)} 个函数的间接调用...")
+            # 导入LLM检测器
+            from utils.llm_indirect_call_detector import preprocess_indirect_calls
 
-        # 导入LLM检测器
-        from utils.llm_indirect_call_detector import preprocess_indirect_calls
+            # 批量检测
+            self.llm_indirect_call_cache = preprocess_indirect_calls(
+                kg_interface=self,
+                func_names=func_names
+            )
 
-        # 批量检测
-        self.llm_indirect_call_cache = preprocess_indirect_calls(
-            kg_interface=self,
-            func_names=func_names
-        )
+            logger.info(f"函数指针检测完成！缓存了 {sum(len(v) for v in self.llm_indirect_call_cache.values())} 条间接调用关系")
 
-        logger.info(f"预处理完成！缓存了 {sum(len(v) for v in self.llm_indirect_call_cache.values())} 条间接调用关系")
+        # ========== 2. 异步函数识别（新增） ==========
+        async_config = config.get('async_call_detection', {})
+        keywords = async_config.get('keywords', [])
+        known_funcs = async_config.get('known_async_functions', [])
+
+        # 添加显式配置的异步函数
+        self.async_functions = set(known_funcs)
+
+        # 基于关键字扫描图谱中的所有函数
+        if keywords:
+            logger.info(f"扫描图谱中匹配异步关键字的函数...")
+            keyword_matched = 0
+            for func_name in self.entities.get('FUNCTION', {}).keys():
+                func_name_lower = func_name.lower()
+                if any(kw in func_name_lower for kw in keywords):
+                    self.async_functions.add(func_name)
+                    keyword_matched += 1
+
+            logger.info(f"异步函数识别完成！共识别 {len(self.async_functions)} 个异步函数")
+            logger.info(f"  - 显式配置: {len(known_funcs)} 个")
+            logger.info(f"  - 关键字匹配: {keyword_matched} 个")
 
     def find_call_path_with_indirect(self, start: str, end: str, max_depth: int = 10, debug: bool = False) -> Optional[Dict]:
         """
@@ -958,6 +1245,7 @@ class KnowledgeGraphInterface:
                 if not callee_id or callee_id in path_ids:  # 避免环路
                     continue
 
+                # 添加直接调用边
                 queue.append((
                     callee_id,
                     path_ids + [callee_id],
@@ -965,7 +1253,37 @@ class KnowledgeGraphInterface:
                     call_lines + [callee_line]
                 ))
 
-            # 2. 获取间接调用的邻居
+                # 检查是否是异步调用函数
+                if callee_name in self.async_functions:
+                    # 检测异步调用关系
+                    async_targets = self._detect_async_call(current_name, callee_name)
+
+                    for async_target_name, bridge_info in async_targets:
+                        async_target_entity = self.find_function(async_target_name)
+                        if not async_target_entity:
+                            continue
+
+                        async_target_id = async_target_entity.get('id')
+                        if not async_target_id:
+                            continue
+
+                        async_target_id = self.normalize_id(async_target_id)
+                        # 注意：async_target 可能已经在 path 中（避免环路）
+                        # 但 callee 一定不在 path 中（因为上面检查过了）
+                        if not async_target_id or async_target_id in path_ids + [callee_id]:
+                            continue
+
+                        # 添加异步调用边：current → callee → async_target
+                        # 路径包含两个节点：callee 和 async_target
+                        # 包含两条边：direct 和 async
+                        queue.append((
+                            async_target_id,
+                            path_ids + [callee_id, async_target_id],
+                            edge_types + ['direct', {'type': 'async', 'bridge': bridge_info}],
+                            call_lines + [callee_line, None]  # 异步调用没有call_line
+                        ))
+
+            # 2. 获取间接调用的邻居（函数指针）
             indirect_callees = self._find_indirect_callees(current_name)
 
             for callee_name, bridge_info in indirect_callees:
