@@ -867,7 +867,7 @@ class KnowledgeGraphInterface:
                             'bridge_type': 'async',
                             'bridge_entity': field_name,
                             'init_func': 'INIT_DELAYED_WORK',
-                            'method': 'mock_data'
+                            'method': 'llm_analysis'  # 字段名是LLM提取的，只是ASSIGNED_TO来自mock
                         }
                     ))
                     logger.info(f"✓ 补充 Mock 数据：{field_name} -> {target_name}")

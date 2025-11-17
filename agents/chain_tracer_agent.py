@@ -73,25 +73,28 @@ class CallChainTracerAgent(BaseAgent):
         if result and result.get('path'):
             self.log_success(f"✓ 扩展搜索成功，路径长度: {len(result['path'])}")
 
-            # 统计间接调用数量
+            # 统计间接调用数量（包括函数指针和异步调用）
             edges = result.get('edges', [])
-            indirect_count = sum(1 for e in edges if isinstance(e, dict) and e.get('type') == 'indirect')
+            indirect_count = sum(1 for e in edges if isinstance(e, dict))
 
             # 构建 breaks 信息（用于显示间接调用位置）
             breaks = []
             for i, edge in enumerate(edges):
-                if isinstance(edge, dict) and edge.get('type') == 'indirect':
-                    bridge_info = edge.get('bridge', {})
-                    # 从bridge中获取实际的检测方法（llm_analysis或mock_data）
-                    detection_method = bridge_info.get('method', 'unknown')
-                    breaks.append({
-                        'position': i,
-                        'from': result['path'][i],
-                        'to': result['path'][i + 1],
-                        'fixed': True,
-                        'method': detection_method,  # 使用实际的检测方法
-                        'bridge': bridge_info
-                    })
+                if isinstance(edge, dict):
+                    edge_type = edge.get('type')
+                    # 处理函数指针（indirect）和异步调用（async）
+                    if edge_type in ['indirect', 'async']:
+                        bridge_info = edge.get('bridge', {})
+                        # 从bridge中获取实际的检测方法（llm_analysis或mock_data）
+                        detection_method = bridge_info.get('method', 'unknown')
+                        breaks.append({
+                            'position': i,
+                            'from': result['path'][i],
+                            'to': result['path'][i + 1],
+                            'fixed': True,
+                            'method': detection_method,  # 使用实际的检测方法
+                            'bridge': bridge_info
+                        })
 
             # 更新统计
             self.stats['total_breaks'] = indirect_count
@@ -625,24 +628,27 @@ class CallChainTracerAgent(BaseAgent):
             path = path_info.get('path', [])
             call_lines = path_info.get('call_lines', [])
 
-            # 统计间接调用数量
-            indirect_count = sum(1 for e in edges if isinstance(e, dict) and e.get('type') == 'indirect')
+            # 统计间接调用数量（包括函数指针和异步调用）
+            indirect_count = sum(1 for e in edges if isinstance(e, dict))
 
             # 构建 breaks 信息（用于显示间接调用位置）
             breaks = []
             for i, edge in enumerate(edges):
-                if isinstance(edge, dict) and edge.get('type') == 'indirect':
-                    bridge_info = edge.get('bridge', {})
-                    # 从bridge中获取实际的检测方法（llm_analysis或mock_data）
-                    detection_method = bridge_info.get('method', 'unknown')
-                    breaks.append({
-                        'position': i,
-                        'from': path[i],
-                        'to': path[i + 1],
-                        'fixed': True,
-                        'method': detection_method,  # 使用实际的检测方法
-                        'bridge': bridge_info
-                    })
+                if isinstance(edge, dict):
+                    edge_type = edge.get('type')
+                    # 处理函数指针（indirect）和异步调用（async）
+                    if edge_type in ['indirect', 'async']:
+                        bridge_info = edge.get('bridge', {})
+                        # 从bridge中获取实际的检测方法（llm_analysis或mock_data）
+                        detection_method = bridge_info.get('method', 'unknown')
+                        breaks.append({
+                            'position': i,
+                            'from': path[i],
+                            'to': path[i + 1],
+                            'fixed': True,
+                            'method': detection_method,  # 使用实际的检测方法
+                            'bridge': bridge_info
+                        })
 
             result_paths.append({
                 'path': path,
