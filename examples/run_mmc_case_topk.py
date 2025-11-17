@@ -12,6 +12,7 @@ sys.path.insert(0, str(project_root))
 
 from coordinator.master_coordinator import MasterCoordinator
 from utils.logger import setup_logger, print_header
+from test_log_matching import extract_functions_from_log
 import json
 
 # 配置日志
@@ -267,6 +268,109 @@ mmc0: error -1 whilst initialising MMC card
         coordinator.close()
 
 
+def run_mmc_case_with_log_matching():
+    """运行MMC案例 - 使用日志匹配提取起止点"""
+
+    print_header("运行MMC案例 - 日志匹配 + Top-K路径搜索")
+
+    # 甲方提供的错误日志
+    mmc_error_log = """
+ALL phases bad!
+mmc0: tuning execution failed: -1
+mmc0: error -1 whilst initialising MMC card
+    """
+
+    print("\n错误日志:")
+    print("=" * 60)
+    print(mmc_error_log.strip())
+    print("=" * 60)
+
+    # 步骤1: 使用日志匹配提取关键函数
+    print("\n[步骤1] 日志匹配 - 提取关键函数")
+    print("=" * 60)
+
+    log_analysis = extract_functions_from_log(mmc_error_log, use_llm=False)
+
+    start_func = log_analysis['start_entity']
+    end_func = log_analysis['end_entity']
+    intermediate_funcs = log_analysis['intermediate_entities']
+
+    print(f"  起始点 (Mock): {start_func}")
+    print(f"  错误点: {end_func}")
+    print(f"  中间点: {intermediate_funcs}")
+    print(f"  所有匹配函数: {log_analysis['all_functions']}")
+
+    # 步骤2: 使用提取的函数进行路径搜索
+    print("\n[步骤2] 路径搜索 - Top-K最优路径")
+    print("=" * 60)
+
+    # 指定数据目录
+    data_dir = "/data/xuao/code_kg_search/linux_test/data/mmc"
+    if not os.path.exists(data_dir):
+        data_dir = "/data/xuao/code_kg_search/linux_test/data"
+        print(f"注意: MMC子图不存在，使用完整图谱 ({data_dir})")
+
+    # 创建协调器
+    coordinator = MasterCoordinator(data_dir=data_dir, llm_client=None)
+
+    try:
+        # 使用日志匹配得到的函数进行路径搜索
+        result = coordinator.process_top_k_with_specific_functions(
+            mmc_error_log,
+            start_func=start_func,
+            end_func=end_func,
+            intermediate_funcs=intermediate_funcs,
+            k=5
+        )
+
+        # 保存结果
+        output_dir = project_root / 'output'
+        output_dir.mkdir(exist_ok=True)
+
+        output_file = output_dir / 'mmc_case_log_matching.json'
+        with open(output_file, 'w', encoding='utf-8') as f:
+            # 添加日志分析结果到输出
+            result['log_analysis'] = {
+                'start_entity': start_func,
+                'end_entity': end_func,
+                'intermediate_entities': intermediate_funcs,
+                'all_matched_functions': log_analysis['all_functions']
+            }
+            json.dump(result, f, indent=2, ensure_ascii=False)
+
+        print(f"\n结果已保存到: {output_file}")
+
+        # 显示路径详情
+        if result.get('paths'):
+            print("\n" + "=" * 60)
+            print(f"找到 {len(result['paths'])} 条路径:")
+            print("=" * 60)
+            for idx, path in enumerate(result['paths'][:3]):  # 只显示前3条
+                avg_line = path.get('avg_call_line', 0)
+                print(f"\n路径 #{idx+1}:")
+                print(f"  长度: {path['length']}")
+                print(f"  间接调用: {path['indirect_count']}")
+                print(f"  平均调用行号: {avg_line:.1f}")
+                print(f"  得分: {path['score']:.2f}")
+
+                # 显示路径（简化）
+                path_str = ' → '.join(path['path'])
+                if len(path_str) > 100:
+                    path_str = ' → '.join(path['path'][:3]) + ' → ... → ' + ' → '.join(path['path'][-2:])
+                print(f"  路径: {path_str}")
+
+        print("\n" + "=" * 60)
+        print("流程说明:")
+        print("=" * 60)
+        print("  1. 日志匹配：从错误日志中提取关键函数")
+        print("  2. Mock起始点：暂时使用 dw_mci_pltfm_probe 作为入口")
+        print("  3. 路径搜索：在知识图谱中搜索最优调用路径")
+        print("  4. 排序策略：考虑路径长度、间接调用数量、调用行号")
+
+    finally:
+        coordinator.close()
+
+
 def main():
     """主函数"""
     if len(sys.argv) > 1:
@@ -276,11 +380,15 @@ def main():
         elif sys.argv[1] == '--llm':
             # 测试LLM辅助检测
             run_mmc_case_with_llm()
+        elif sys.argv[1] == '--log-match':
+            # 测试日志匹配集成
+            run_mmc_case_with_log_matching()
         else:
             print("用法:")
-            print("  python run_mmc_case_topk.py          # 标准模式")
-            print("  python run_mmc_case_topk.py --direct # 直接测试KG接口")
-            print("  python run_mmc_case_topk.py --llm    # LLM辅助检测模式")
+            print("  python run_mmc_case_topk.py              # 标准模式")
+            print("  python run_mmc_case_topk.py --direct     # 直接测试KG接口")
+            print("  python run_mmc_case_topk.py --llm        # LLM辅助检测模式")
+            print("  python run_mmc_case_topk.py --log-match  # 日志匹配集成模式")
     else:
         # 完整流程测试
         run_mmc_case_topk()

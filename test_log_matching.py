@@ -325,6 +325,65 @@ def display_llm_results(llm_result: dict):
         print(f"  {' → '.join(chain)}")
 
 
+def extract_functions_from_log(log_text: str, use_llm: bool = False) -> dict:
+    """
+    从日志中提取关键函数（起始点、错误点、中间点）
+
+    Args:
+        log_text: 错误日志文本
+        use_llm: 是否使用LLM进行增强分析
+
+    Returns:
+        {
+            'start_entity': 起始函数名,
+            'end_entity': 错误点函数名,
+            'intermediate_entities': [中间函数列表],
+            'all_functions': [所有匹配的函数列表],
+            'pattern_matching': 模式匹配详细结果,
+            'llm_analysis': LLM分析结果（如果启用）
+        }
+    """
+    # 1. 逐行分析日志，进行模式匹配
+    pattern_result = analyze_log_by_lines(log_text)
+
+    # 2. 如果启用LLM，进行增强分析
+    llm_result = None
+    if use_llm:
+        llm_result = analyze_log_with_llm(log_text, pattern_result)
+
+    # 3. 提取关键函数
+    all_functions = pattern_result.get('all_functions', [])
+
+    # Mock起始点（暂时固定为probe函数）
+    start_entity = 'dw_mci_pltfm_probe'
+
+    # 错误点：最底层的函数（日志的第一个匹配函数）
+    end_entity = None
+    if all_functions:
+        end_entity = all_functions[0]
+
+    # 中间点：如果有LLM分析结果，使用LLM的；否则使用模式匹配的
+    intermediate_entities = []
+    if llm_result and not llm_result.get('error'):
+        intermediate_entities = llm_result.get('intermediate_entities', [])
+        # 如果LLM推断的错误点更准确，使用它
+        if llm_result.get('end_entity'):
+            end_entity = llm_result['end_entity']
+    else:
+        # 使用模式匹配的中间函数（去除第一个作为错误点）
+        if len(all_functions) > 1:
+            intermediate_entities = all_functions[1:]
+
+    return {
+        'start_entity': start_entity,
+        'end_entity': end_entity,
+        'intermediate_entities': intermediate_entities,
+        'all_functions': all_functions,
+        'pattern_matching': pattern_result,
+        'llm_analysis': llm_result
+    }
+
+
 def main():
     """主测试函数"""
     # 测试日志
