@@ -853,23 +853,24 @@ class KnowledgeGraphInterface:
             target_names = [t[0] for t in targets]
             logger.info(f"✓ 从图谱找到字段 '{field_name}' 的赋值目标: {target_names}")
 
-        # 5. Fallback 到 Mock 数据
-        if not targets:
-            logger.debug(f"图谱查询失败，尝试 Mock 数据")
-            mock_targets = get_mock_async_assigned_to(field_name)
+        # 5. 补充 Mock 数据（合并模式）
+        # 即使图谱有数据，也检查mock，以便补充图谱中缺失的关系
+        mock_targets = get_mock_async_assigned_to(field_name)
+        if mock_targets:
+            # 去重：避免重复添加
+            existing_names = {t[0] for t in targets}
             for target_name in mock_targets:
-                targets.append((
-                    target_name,
-                    {
-                        'bridge_type': 'async',
-                        'bridge_entity': field_name,
-                        'init_func': 'INIT_DELAYED_WORK',
-                        'method': 'mock_data'
-                    }
-                ))
-
-            if targets:
-                logger.info(f"使用 Mock 数据：字段 {field_name} -> {[t[0] for t in targets]}")
+                if target_name not in existing_names:
+                    targets.append((
+                        target_name,
+                        {
+                            'bridge_type': 'async',
+                            'bridge_entity': field_name,
+                            'init_func': 'INIT_DELAYED_WORK',
+                            'method': 'mock_data'
+                        }
+                    ))
+                    logger.info(f"✓ 补充 Mock 数据：{field_name} -> {target_name}")
 
         return targets
 
