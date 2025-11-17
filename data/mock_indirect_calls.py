@@ -185,3 +185,148 @@ def get_mock_async_assigned_to(field_name: str) -> list:
     """
     return MOCK_ASYNC_ASSIGNED_TO.get(field_name, [])
 
+
+# ============================================================
+# 失败消息实体和关系（新增）
+# TODO: 等图谱包含FAIL_MESSAGE和FAIL_TEMPLATE后删除
+# ============================================================
+
+# FAIL_MESSAGE 实体
+# 从源码中的错误打印语句提取的失败消息
+MOCK_FAIL_MESSAGES = {
+    "msg_4157273": {
+        "id": "4157273",
+        "name": 'dev_err(host->dev, "All phases bad!\\n")',
+        "type": "FAIL_MESSAGE",
+        "scope": "dw_mci_hi3660_execute_tuning",
+        "source_file": "drivers/mmc/host/dw_mmc-hi3660.c",
+        "start_line": 150,
+        "end_line": 150,
+        "template": "All phases bad!",
+        "log_pattern": r"All phases bad"  # 用于日志匹配
+    },
+    "msg_4157274": {
+        "id": "4157274",
+        "name": 'pr_err("%s: tuning execution failed: %d\\n", mmc_hostname(host), err)',
+        "type": "FAIL_MESSAGE",
+        "scope": "mmc_execute_tuning",
+        "source_file": "drivers/mmc/core/core.c",
+        "start_line": 1200,
+        "end_line": 1201,
+        "template": "%s: tuning execution failed: %d",
+        "log_pattern": r"tuning execution failed"  # 用于日志匹配
+    },
+    "msg_4157275": {
+        "id": "4157275",
+        "name": 'pr_err("%s: error %d whilst initialising MMC card\\n", mmc_hostname(host), err)',
+        "type": "FAIL_MESSAGE",
+        "scope": "mmc_attach_mmc",
+        "source_file": "drivers/mmc/core/mmc.c",
+        "start_line": 2100,
+        "end_line": 2101,
+        "template": "%s: error %d whilst initialising MMC card",
+        "log_pattern": r"error.*whilst initialising MMC card"  # 用于日志匹配
+    }
+}
+
+# HAS_MESSAGE 关系
+# 格式：{function_name: [message_ids]}
+# 表示某个函数包含哪些失败消息
+MOCK_HAS_MESSAGE_RELATIONS = {
+    "dw_mci_hi3660_execute_tuning": ["msg_4157273"],
+    "mmc_execute_tuning": ["msg_4157274"],
+    "mmc_attach_mmc": ["msg_4157275"]
+}
+
+
+def get_mock_fail_messages() -> dict:
+    """
+    获取所有 mock 的失败消息实体
+
+    TODO: 等图谱修复后删除此函数
+
+    Returns:
+        失败消息实体字典
+    """
+    return MOCK_FAIL_MESSAGES
+
+
+def get_mock_fail_message_by_id(msg_id: str) -> dict:
+    """
+    根据ID获取失败消息实体
+
+    TODO: 等图谱修复后删除此函数
+
+    Args:
+        msg_id: 消息ID
+
+    Returns:
+        失败消息实体 dict 或 None
+    """
+    return MOCK_FAIL_MESSAGES.get(msg_id)
+
+
+def get_mock_messages_by_function(func_name: str) -> list:
+    """
+    获取某个函数的所有失败消息
+
+    TODO: 等图谱修复后删除此函数
+
+    Args:
+        func_name: 函数名
+
+    Returns:
+        失败消息实体列表 [message_dict, ...]
+    """
+    msg_ids = MOCK_HAS_MESSAGE_RELATIONS.get(func_name, [])
+    return [MOCK_FAIL_MESSAGES[msg_id] for msg_id in msg_ids if msg_id in MOCK_FAIL_MESSAGES]
+
+
+def match_log_to_fail_messages(log_text: str) -> list:
+    """
+    从日志文本匹配到失败消息实体
+
+    TODO: 等图谱修复后删除此函数
+
+    Args:
+        log_text: 错误日志文本
+
+    Returns:
+        匹配到的失败消息列表 [(msg_dict, matched_text), ...]
+    """
+    import re
+
+    matches = []
+    for msg_id, msg_data in MOCK_FAIL_MESSAGES.items():
+        pattern = msg_data.get('log_pattern', '')
+        if pattern and re.search(pattern, log_text, re.IGNORECASE):
+            # 提取匹配的文本
+            match_obj = re.search(pattern, log_text, re.IGNORECASE)
+            matched_text = match_obj.group(0) if match_obj else ''
+            matches.append((msg_data, matched_text))
+
+    return matches
+
+
+def get_functions_from_log(log_text: str) -> list:
+    """
+    从日志文本推断相关的函数（基于失败消息匹配）
+
+    TODO: 等图谱修复后删除此函数
+
+    Args:
+        log_text: 错误日志文本
+
+    Returns:
+        相关函数名列表 [func_name, ...]
+    """
+    matches = match_log_to_fail_messages(log_text)
+    functions = []
+
+    for msg_data, _ in matches:
+        func_name = msg_data.get('scope')
+        if func_name and func_name not in functions:
+            functions.append(func_name)
+
+    return functions
+
