@@ -59,13 +59,18 @@ mmc0: error -1 whilst initialising MMC card
 
         print(f"\n结果已保存到: {output_dir / 'mmc_case_topk_auto.json'}")
 
-        # ========== 方式2：指定起止点 + Top-K路径 ==========
-        print("\n\n[方式2] 指定起止点 + Top-5路径:")
+        # ========== 方式2：指定起止点 + 中间节点 + Top-K路径 ==========
+        print("\n\n[方式2] 指定起止点+中间节点 + Top-5路径:")
         print("=" * 60)
         result2 = coordinator.process_top_k_with_specific_functions(
             mmc_error_log,
             start_func='dw_mci_pltfm_probe',
             end_func='dw_mci_execute_tuning',
+            intermediate_funcs=[
+                'mmc_attach_mmc',
+                'mmc_execute_tuning',
+                'dw_mci_hi3660_execute_tuning'
+            ],
             k=5
         )
 
@@ -181,13 +186,18 @@ mmc0: error -1 whilst initialising MMC card
 
         print(f"\n结果已保存到: {output_dir / 'mmc_case_topk_llm_auto.json'}")
 
-        # ========== 方式2：指定起止点 + Top-K路径 ==========
-        print("\n\n[方式2] 指定起止点 + Top-5路径 (LLM辅助):")
+        # ========== 方式2：指定起止点 + 中间节点 + Top-K路径 ==========
+        print("\n\n[方式2] 指定起止点+中间节点 + Top-5路径 (LLM辅助):")
         print("=" * 60)
         result2 = coordinator.process_top_k_with_specific_functions(
             mmc_error_log,
             start_func='dw_mci_pltfm_probe',
             end_func='dw_mci_execute_tuning',
+            intermediate_funcs=[
+                'mmc_attach_mmc',
+                'mmc_execute_tuning',
+                'dw_mci_hi3660_execute_tuning'
+            ],
             k=5
         )
 

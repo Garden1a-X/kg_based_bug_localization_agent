@@ -144,23 +144,37 @@ class EntityLocatorAgent(BaseAgent):
         
         return result
     
-    def locate_specific(self, start_name: str, end_name: str) -> Dict:
+    def locate_specific(self, start_name: str, end_name: str, intermediate_names: list = None) -> Dict:
         """
-        直接定位指定的起点和终点
-        
+        直接定位指定的起点、终点和中间节点
+
         Args:
             start_name: 起点函数名
             end_name: 终点函数名
-            
+            intermediate_names: 中间节点函数名列表（可选）
+
         Returns:
             定位结果
         """
         self.log_start(f"定位指定函数: {start_name} -> {end_name}")
-        
+
         result = {
             'start_entity': self._locate_function(start_name),
             'end_entity': self._locate_function(end_name),
             'intermediate_entities': []
         }
-        
+
+        # 定位中间节点
+        if intermediate_names:
+            key_entities = []
+            for func_name in intermediate_names:
+                entity = self._locate_function(func_name)
+                if entity:
+                    key_entities.append(entity)
+                    self.log_info(f"✓ 定位到中间节点: {func_name}")
+
+            if key_entities:
+                result['intermediate_entities'] = key_entities
+                self.log_success(f"定位到 {len(key_entities)} 个中间节点")
+
         return result

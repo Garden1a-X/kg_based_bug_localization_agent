@@ -351,16 +351,18 @@ class MasterCoordinator:
         log_text: str,
         start_func: str,
         end_func: str,
+        intermediate_funcs: list = None,
         k: int = 5,
         error_line: int = None
     ) -> Dict:
         """
-        使用指定的起点和终点，返回Top-K条调用链
+        使用指定的起点、终点和中间节点，返回Top-K条调用链
 
         Args:
-            log_text: 错误日志文本
+            log_text: 错误日志文本（可选，仅用于报告）
             start_func: 起点函数名
             end_func: 终点函数名
+            intermediate_funcs: 中间节点函数名列表（可选）
             k: 返回路径数量上限
             error_line: 已废弃（保留用于兼容性，不再用于剪枝）
 
@@ -369,13 +371,17 @@ class MasterCoordinator:
         """
         print_header(f"Bug定位分析流程（指定起止点，Top-{k}路径）")
 
-        # 第1步：日志解析
+        # 第1步：日志解析（仅用于报告）
         print_step(1, 3, "解析错误日志")
         parsed_log = self.log_parser.execute(log_text)
 
         # 第2步：定位指定函数
         print_step(2, 3, "定位指定函数")
-        entities = self.entity_locator.locate_specific(start_func, end_func)
+        entities = self.entity_locator.locate_specific(
+            start_func,
+            end_func,
+            intermediate_names=intermediate_funcs
+        )
         self._display_entities(entities)
 
         if not entities['start_entity'] or not entities['end_entity']:
@@ -390,6 +396,7 @@ class MasterCoordinator:
         paths = self.chain_tracer.execute_top_k(
             entities['start_entity'],
             entities['end_entity'],
+            intermediate_entities=entities.get('intermediate_entities', []),
             k=k,
             error_line=error_line
         )
