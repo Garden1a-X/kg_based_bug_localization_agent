@@ -20,7 +20,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from data.kg_interface import KnowledgeGraphInterface
-from utils.llm_client import LLMClient
+from openai import OpenAI
 import json
 
 
@@ -109,7 +109,12 @@ def detect_async_calls_with_llm(func_name: str, source_code: str) -> list:
     Returns:
         [(target_func, bridge_info), ...] 列表
     """
-    llm_client = LLMClient()
+    # 初始化OpenAI客户端
+    client = OpenAI(
+        api_key="",  # 空字符串也可以
+        base_url="http://10.12.208.86:8502"
+    )
+    model = "gpt-4o-mini"
 
     prompt = f"""请分析以下C语言函数，检测是否有异步调用（work queue相关）。
 
@@ -149,18 +154,37 @@ def detect_async_calls_with_llm(func_name: str, source_code: str) -> list:
 只返回JSON，不要其他说明。"""
 
     print(f"\n  → 调用LLM分析异步调用...")
-    response = llm_client.chat(prompt)
 
-    print(f"  ← LLM返回: {response[:200]}...")
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert in C code analysis, specializing in identifying async work queue patterns."
+                },
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=1000,
+            timeout=180
+        )
+
+        response_content = response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"  ✗ LLM调用失败: {e}")
+        return []
+
+    print(f"  ← LLM返回: {response_content[:200]}...")
 
     # 解析响应
     try:
         # 提取JSON（处理可能的markdown代码块）
-        json_text = response
-        if '```json' in response:
-            json_text = response.split('```json')[1].split('```')[0].strip()
-        elif '```' in response:
-            json_text = response.split('```')[1].split('```')[0].strip()
+        json_text = response_content
+        if '```json' in response_content:
+            json_text = response_content.split('```json')[1].split('```')[0].strip()
+        elif '```' in response_content:
+            json_text = response_content.split('```')[1].split('```')[0].strip()
 
         result = json.loads(json_text)
 
@@ -187,10 +211,10 @@ def detect_async_calls_with_llm(func_name: str, source_code: str) -> list:
 
     except json.JSONDecodeError as e:
         print(f"  ✗ JSON解析失败: {e}")
-        print(f"    原始响应: {response}")
+        print(f"    原始响应: {response_content}")
         return []
     except Exception as e:
-        print(f"  ✗ LLM调用失败: {e}")
+        print(f"  ✗ 处理响应失败: {e}")
         return []
 
 
