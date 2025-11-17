@@ -9,33 +9,25 @@ from loguru import logger
 class OpenAIClient:
     """OpenAI API 客户端"""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4", base_url: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini", base_url: Optional[str] = None):
         """
         初始化 OpenAI 客户端
 
         Args:
-            api_key: OpenAI API Key，如果为None则从环境变量读取
-            model: 模型名称，默认 gpt-4
-            base_url: API服务地址，用于自定义endpoint
+            api_key: OpenAI API Key，如果为None则使用空字符串
+            model: 模型名称，默认 gpt-4o-mini
+            base_url: API服务地址，默认使用 http://10.12.208.86:8502
         """
-        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
+        self.api_key = api_key if api_key is not None else ""
         self.model = model
-        self.base_url = base_url
+        self.base_url = base_url if base_url is not None else "http://10.12.208.86:8502"
         self.client = None
-
-        if not self.api_key:
-            logger.warning("未设置 OPENAI_API_KEY，LLM功能将不可用")
-            return
 
         try:
             # 延迟导入，避免没有安装 openai 包时报错
             from openai import OpenAI
-            if base_url:
-                self.client = OpenAI(api_key=self.api_key, base_url=base_url)
-                logger.info(f"OpenAI 客户端初始化成功，模型: {self.model}, 服务地址: {base_url}")
-            else:
-                self.client = OpenAI(api_key=self.api_key)
-                logger.info(f"OpenAI 客户端初始化成功，模型: {self.model}")
+            self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            logger.info(f"OpenAI 客户端初始化成功，模型: {self.model}, 服务地址: {self.base_url}")
         except ImportError:
             logger.error("未安装 openai 包，请运行: pip install openai")
         except Exception as e:
@@ -45,7 +37,7 @@ class OpenAIClient:
         """检查LLM是否可用"""
         return self.client is not None
 
-    def complete(self, prompt: str, temperature: float = 0.7, max_tokens: int = 2000) -> Optional[str]:
+    def complete(self, prompt: str, temperature: float = 0.7, max_tokens: int = 2000, timeout: int = 180) -> Optional[str]:
         """
         调用 LLM 完成文本生成
 
@@ -53,6 +45,7 @@ class OpenAIClient:
             prompt: 提示词
             temperature: 温度参数，越高越随机
             max_tokens: 最大生成token数
+            timeout: 超时时间（秒）
 
         Returns:
             生成的文本，失败返回None
@@ -69,7 +62,8 @@ class OpenAIClient:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                timeout=timeout
             )
 
             result = response.choices[0].message.content

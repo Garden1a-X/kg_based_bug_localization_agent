@@ -165,20 +165,9 @@ def analyze_log_with_llm(log_text: str, result: dict) -> dict:
     Returns:
         LLM分析结果 {start_entity, end_entity, intermediate_entities, reasoning}
     """
-    # 检查API Key
-    api_key = os.getenv('OPENAI_API_KEY')
-    if not api_key:
-        logger.warning("LLM不可用，跳过LLM分析")
-        return {
-            "error": "LLM不可用（未设置OPENAI_API_KEY）",
-            "start_entity": None,
-            "end_entity": None,
-            "intermediate_entities": []
-        }
-
     # 初始化OpenAI客户端
     try:
-        client = OpenAI(api_key=api_key)
+        client = OpenAI(api_key="", base_url="http://10.12.208.86:8502")
     except Exception as e:
         logger.error(f"初始化OpenAI客户端失败: {e}")
         return {
@@ -256,13 +245,14 @@ def analyze_log_with_llm(log_text: str, result: dict) -> dict:
     try:
         # 调用LLM
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "你是一个Linux内核驱动错误分析专家。"},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
-            max_tokens=2000
+            max_tokens=2000,
+            timeout=180
         )
 
         llm_response = response.choices[0].message.content
