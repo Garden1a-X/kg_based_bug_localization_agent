@@ -221,6 +221,16 @@ MOCK_FAIL_MESSAGES = {
         "source_file": "drivers/mmc/core/mmc.c",
         "start_line": 2100,
         "end_line": 2101
+    },
+    # 干扰项：相同的错误消息在不同函数中
+    "msg_4157276": {
+        "id": "4157276",
+        "name": 'dev_err(host->dev, "All phases bad!\\n")',
+        "type": "FAIL_MESSAGE",
+        "scope": "dw_mci_rk3288_execute_tuning",
+        "source_file": "drivers/mmc/host/dw_mmc-rk3288.c",
+        "start_line": 200,
+        "end_line": 200
     }
 }
 
@@ -230,7 +240,8 @@ MOCK_FAIL_MESSAGES = {
 MOCK_HAS_MESSAGE_RELATIONS = {
     "dw_mci_hi3660_execute_tuning": ["msg_4157273"],
     "mmc_execute_tuning": ["msg_4157274"],
-    "mmc_attach_mmc": ["msg_4157275"]
+    "mmc_attach_mmc": ["msg_4157275"],
+    "dw_mci_rk3288_execute_tuning": ["msg_4157276"]  # 干扰项
 }
 
 
