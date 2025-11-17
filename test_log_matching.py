@@ -14,10 +14,11 @@ from data.mock_indirect_calls import (
     MOCK_FAIL_MESSAGES,
     _extract_message_pattern
 )
-from llm.openai_client import OpenAIClient
+from openai import OpenAI
 from loguru import logger
 import re
 import json
+import os
 
 
 def match_log_line_to_fail_message(log_line: str, fail_messages: dict) -> list:
@@ -164,13 +165,24 @@ def analyze_log_with_llm(log_text: str, result: dict) -> dict:
     Returns:
         LLM分析结果 {start_entity, end_entity, intermediate_entities, reasoning}
     """
-    # 初始化OpenAI客户端
-    llm_client = OpenAIClient()
-
-    if not llm_client.is_available():
+    # 检查API Key
+    api_key = os.getenv('OPENAI_API_KEY')
+    if not api_key:
         logger.warning("LLM不可用，跳过LLM分析")
         return {
             "error": "LLM不可用（未设置OPENAI_API_KEY）",
+            "start_entity": None,
+            "end_entity": None,
+            "intermediate_entities": []
+        }
+
+    # 初始化OpenAI客户端
+    try:
+        client = OpenAI(api_key=api_key)
+    except Exception as e:
+        logger.error(f"初始化OpenAI客户端失败: {e}")
+        return {
+            "error": f"初始化OpenAI客户端失败: {e}",
             "start_entity": None,
             "end_entity": None,
             "intermediate_entities": []
@@ -243,7 +255,17 @@ def analyze_log_with_llm(log_text: str, result: dict) -> dict:
 
     try:
         # 调用LLM
-        llm_response = llm_client.complete(prompt, temperature=0.3, max_tokens=2000)
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "你是一个Linux内核驱动错误分析专家。"},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=2000
+        )
+
+        llm_response = response.choices[0].message.content
 
         if not llm_response:
             return {
