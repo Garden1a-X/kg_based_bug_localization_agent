@@ -783,14 +783,32 @@ class KnowledgeGraphInterface:
         # 先尝试图谱查询
         # 1. 找到所有名为 field_name 的 FIELD 实体
         field_ids = []
-        for entity_id, entity in self.entity_by_id.items():
-            if entity.get('type') == 'FIELD' and entity.get('name') == field_name:
-                field_ids.append(entity_id)
+
+        # 方法1：从 entities['FIELD'] 中查询（如果有的话）
+        field_entities = self.entities.get('FIELD', {})
+        if field_entities:
+            # entities['FIELD'] 是 {name: entity} 的字典
+            # 但可能有同名字段，所以需要遍历
+            for name, entity in field_entities.items():
+                if name == field_name:
+                    field_id = entity.get('id')
+                    if field_id:
+                        field_ids.append(field_id)
+
+        # 方法2：如果方法1没找到，遍历 entity_by_id（处理同名情况）
+        if not field_ids:
+            for entity_id, entity in self.entity_by_id.items():
+                # 检查是否是 FIELD 类型
+                entity_type = entity.get('type') or entity.get('entity_type') or entity.get('kind')
+                entity_name = entity.get('name')
+
+                if entity_type == 'FIELD' and entity_name == field_name:
+                    field_ids.append(entity_id)
 
         if not field_ids:
             logger.debug(f"未找到名为 {field_name} 的 FIELD 实体")
         else:
-            logger.debug(f"找到 {len(field_ids)} 个名为 {field_name} 的 FIELD 实体")
+            logger.debug(f"找到 {len(field_ids)} 个名为 {field_name} 的 FIELD 实体: {field_ids}")
 
         # 2. 构建 field_id 集合用于快速查询
         field_id_set = set(field_ids)
@@ -799,6 +817,8 @@ class KnowledgeGraphInterface:
         assigned_to_relations = self.relations.get('ASSIGNED_TO', [])
         target_function_ids = []
 
+        logger.debug(f"查询 ASSIGNED_TO 关系，图谱中共有 {len(assigned_to_relations)} 条 ASSIGNED_TO 关系")
+
         for rel in assigned_to_relations:
             head_id = rel.get('head')
             tail_id = rel.get('tail')
@@ -806,11 +826,12 @@ class KnowledgeGraphInterface:
             # ASSIGNED_TO: head=FIELD_ID, tail=FUNCTION_ID
             if head_id in field_id_set:
                 target_function_ids.append(tail_id)
+                logger.debug(f"  匹配到 ASSIGNED_TO: {head_id} -> {tail_id}")
 
         if not target_function_ids:
-            logger.debug(f"未在图谱中找到字段 {field_name} 的 ASSIGNED_TO 关系")
+            logger.info(f"未在图谱中找到字段 {field_name} 的 ASSIGNED_TO 关系")
         else:
-            logger.debug(f"在图谱中找到 {len(target_function_ids)} 个赋值目标")
+            logger.info(f"在图谱中找到 {len(target_function_ids)} 个赋值目标")
 
         # 4. 获取目标函数名
         targets = []
