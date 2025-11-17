@@ -581,6 +581,7 @@ class CallChainTracerAgent(BaseAgent):
         self,
         start_entity: Dict,
         end_entity: Dict,
+        intermediate_entities: Optional[List[Dict]] = None,
         max_depth: int = 30,
         k: int = 5,
         error_line: Optional[int] = None
@@ -591,6 +592,7 @@ class CallChainTracerAgent(BaseAgent):
         Args:
             start_entity: 起始实体
             end_entity: 目标实体
+            intermediate_entities: 中间途径点（关键函数列表），路径会尽量经过这些点
             max_depth: 最大搜索深度
             k: 返回路径数量上限
             error_line: 已废弃（保留用于兼容性，不再用于剪枝）
@@ -621,6 +623,12 @@ class CallChainTracerAgent(BaseAgent):
 
         self.log_success(f"✓ 找到 {len(paths)} 条路径")
 
+        # 提取关键函数名称（用于后续匹配）
+        key_function_names = set()
+        if intermediate_entities:
+            key_function_names = {entity['name'] for entity in intermediate_entities}
+            self.log_info(f"关键函数: {list(key_function_names)}")
+
         # 处理每条路径，添加breaks信息
         result_paths = []
         for idx, path_info in enumerate(paths):
@@ -650,6 +658,17 @@ class CallChainTracerAgent(BaseAgent):
                             'bridge': bridge_info
                         })
 
+            # 检查路径经过了哪些关键函数
+            matched_key_functions = []
+            missed_key_functions = []
+            if key_function_names:
+                path_set = set(path)
+                for key_func in key_function_names:
+                    if key_func in path_set:
+                        matched_key_functions.append(key_func)
+                    else:
+                        missed_key_functions.append(key_func)
+
             result_paths.append({
                 'path': path,
                 'edges': edges,
@@ -659,10 +678,31 @@ class CallChainTracerAgent(BaseAgent):
                 'length': path_info.get('length', len(path)),
                 'indirect_count': indirect_count,
                 'avg_call_line': path_info.get('avg_call_line', 0),  # 添加平均调用行号
+                'matched_key_functions': matched_key_functions,  # 匹配到的关键函数
+                'missed_key_functions': missed_key_functions,    # 未匹配到的关键函数
                 'method': 'top_k_search',
                 'success': True
             })
 
             logger.info(f"  路径 #{idx+1}: 长度={len(path)}, 间接调用={indirect_count}, 得分={path_info.get('score', 0)}")
+
+        # 如果有关键函数，调整得分并重新排序
+        if key_function_names:
+            self.log_info("根据关键函数覆盖率调整得分...")
+            for path_result in result_paths:
+                matched_count = len(path_result['matched_key_functions'])
+                # 每匹配一个关键函数，得分+50
+                score_boost = matched_count * 50
+                original_score = path_result['score']
+                path_result['score'] = original_score + score_boost
+
+                if matched_count > 0:
+                    coverage = matched_count / len(key_function_names) * 100
+                    logger.info(f"    路径匹配 {matched_count}/{len(key_function_names)} 个关键函数 "
+                              f"(覆盖率: {coverage:.1f}%), 得分: {original_score:.2f} → {path_result['score']:.2f}")
+
+            # 按调整后的得分重新排序
+            result_paths.sort(key=lambda x: x['score'], reverse=True)
+            self.log_success("得分调整完成，已重新排序")
 
         return result_paths

@@ -332,6 +332,7 @@ class MasterCoordinator:
         paths = self.chain_tracer.execute_top_k(
             entities['start_entity'],
             entities['end_entity'],
+            intermediate_entities=entities.get('intermediate_entities', []),
             k=k,
             error_line=error_line
         )
@@ -414,17 +415,30 @@ class MasterCoordinator:
             score = path_result.get('score', 0)
             indirect_count = path_result.get('indirect_count', 0)
             avg_call_line = path_result.get('avg_call_line', 0)
+            matched_key_functions = path_result.get('matched_key_functions', [])
+            missed_key_functions = path_result.get('missed_key_functions', [])
 
-            # 路径标题
-            console.print(f"[bold green]路径 #{idx+1}[/bold green] "
-                         f"(长度={len(path)}, 间接调用={indirect_count}, "
-                         f"平均行号={avg_call_line:.1f}, 得分={score:.2f})")
+            # 构建关键函数集合（用于快速查找）
+            key_function_set = set(matched_key_functions + missed_key_functions)
+
+            # 路径标题（包含关键函数覆盖率）
+            title = f"[bold green]路径 #{idx+1}[/bold green] " \
+                   f"(长度={len(path)}, 间接调用={indirect_count}, " \
+                   f"平均行号={avg_call_line:.1f}, 得分={score:.2f}"
+            if key_function_set:
+                coverage = len(matched_key_functions) / len(key_function_set) * 100
+                title += f", 关键函数覆盖率={coverage:.0f}%"
+            title += ")"
+            console.print(title)
 
             # 显示路径
             for i, func in enumerate(path):
                 # 检查是否是断点修复的位置
                 is_bridge = any(b['position'] == i-1 and b['fixed']
                               for b in breaks)
+
+                # 检查是否是关键函数
+                is_key_function = func in key_function_set
 
                 # 显示 call_line 信息
                 call_line_info = ""
@@ -441,9 +455,21 @@ class MasterCoordinator:
                             bridge_info = b.get('bridge', {})
                             bridge_type = bridge_info.get('bridge_type', '桥接')
                             break
-                    console.print(f"  {i}. [yellow]{func}[/yellow] ({bridge_type}){call_line_info}")
+                    # 间接调用用黄色，如果同时是关键函数也标注
+                    if is_key_function:
+                        console.print(f"  {i}. [yellow]{func}[/yellow] ({bridge_type}) [cyan]✓关键函数[/cyan]{call_line_info}")
+                    else:
+                        console.print(f"  {i}. [yellow]{func}[/yellow] ({bridge_type}){call_line_info}")
                 else:
-                    console.print(f"  {i}. {func}{call_line_info}")
+                    # 关键函数用青色高亮
+                    if is_key_function:
+                        console.print(f"  {i}. [cyan]{func} ✓[/cyan]{call_line_info}")
+                    else:
+                        console.print(f"  {i}. {func}{call_line_info}")
+
+            # 显示未经过的关键函数
+            if missed_key_functions:
+                console.print(f"  [dim]⚠ 未经过的关键函数: {', '.join(missed_key_functions)}[/dim]")
 
             console.print()
 
