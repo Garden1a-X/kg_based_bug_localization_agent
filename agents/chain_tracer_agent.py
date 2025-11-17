@@ -658,6 +658,7 @@ class CallChainTracerAgent(BaseAgent):
                 'score': path_info.get('score', 0),
                 'length': path_info.get('length', len(path)),
                 'indirect_count': indirect_count,
+                'avg_call_line': path_info.get('avg_call_line', 0),  # 添加平均调用行号
                 'method': 'top_k_search',
                 'success': True
             })
