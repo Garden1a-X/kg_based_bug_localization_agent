@@ -193,6 +193,7 @@ def get_mock_async_assigned_to(field_name: str) -> list:
 
 # FAIL_MESSAGE 实体
 # 从源码中的错误打印语句提取的失败消息
+# 字段严格遵循图谱定义，不添加额外字段
 MOCK_FAIL_MESSAGES = {
     "msg_4157273": {
         "id": "4157273",
@@ -201,9 +202,7 @@ MOCK_FAIL_MESSAGES = {
         "scope": "dw_mci_hi3660_execute_tuning",
         "source_file": "drivers/mmc/host/dw_mmc-hi3660.c",
         "start_line": 150,
-        "end_line": 150,
-        "template": "All phases bad!",
-        "log_pattern": r"All phases bad"  # 用于日志匹配
+        "end_line": 150
     },
     "msg_4157274": {
         "id": "4157274",
@@ -212,9 +211,7 @@ MOCK_FAIL_MESSAGES = {
         "scope": "mmc_execute_tuning",
         "source_file": "drivers/mmc/core/core.c",
         "start_line": 1200,
-        "end_line": 1201,
-        "template": "%s: tuning execution failed: %d",
-        "log_pattern": r"tuning execution failed"  # 用于日志匹配
+        "end_line": 1201
     },
     "msg_4157275": {
         "id": "4157275",
@@ -223,9 +220,7 @@ MOCK_FAIL_MESSAGES = {
         "scope": "mmc_attach_mmc",
         "source_file": "drivers/mmc/core/mmc.c",
         "start_line": 2100,
-        "end_line": 2101,
-        "template": "%s: error %d whilst initialising MMC card",
-        "log_pattern": r"error.*whilst initialising MMC card"  # 用于日志匹配
+        "end_line": 2101
     }
 }
 
@@ -282,6 +277,42 @@ def get_mock_messages_by_function(func_name: str) -> list:
     return [MOCK_FAIL_MESSAGES[msg_id] for msg_id in msg_ids if msg_id in MOCK_FAIL_MESSAGES]
 
 
+def _extract_message_pattern(fail_message_name: str) -> str:
+    """
+    从FAIL_MESSAGE的name字段提取用于日志匹配的模式
+
+    Args:
+        fail_message_name: FAIL_MESSAGE实体的name字段（如 'pr_err("xxx", ...)'）
+
+    Returns:
+        用于匹配的正则模式
+    """
+    import re
+
+    # 提取引号内的字符串
+    # 匹配第一个双引号内的内容
+    string_match = re.search(r'"([^"]+)"', fail_message_name)
+    if not string_match:
+        return None
+
+    template = string_match.group(1)
+
+    # 将格式化占位符替换为通配符
+    # %s, %d, %u, %x 等 -> .*
+    pattern = re.sub(r'%[sduxXfgGp]', r'.*?', template)
+
+    # 转义特殊字符
+    pattern = re.escape(pattern)
+
+    # 还原通配符（之前被escape了）
+    pattern = pattern.replace(r'\.\*\?', '.*?')
+
+    # 移除换行符标记
+    pattern = pattern.replace(r'\\n', '')
+
+    return pattern
+
+
 def match_log_to_fail_messages(log_text: str) -> list:
     """
     从日志文本匹配到失败消息实体
@@ -298,7 +329,8 @@ def match_log_to_fail_messages(log_text: str) -> list:
 
     matches = []
     for msg_id, msg_data in MOCK_FAIL_MESSAGES.items():
-        pattern = msg_data.get('log_pattern', '')
+        # 从name字段提取匹配模式
+        pattern = _extract_message_pattern(msg_data.get('name', ''))
         if pattern and re.search(pattern, log_text, re.IGNORECASE):
             # 提取匹配的文本
             match_obj = re.search(pattern, log_text, re.IGNORECASE)
