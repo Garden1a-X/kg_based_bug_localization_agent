@@ -169,10 +169,17 @@ class MasterCoordinator:
 
         table.add_row("错误消息", str(parsed.get('error_messages', [])))
         table.add_row("错误码", str(parsed.get('error_codes', [])))
-        table.add_row("涉及函数", ", ".join(parsed.get('functions', [])))
 
-        if 'key_functions' in parsed:
-            table.add_row("关键函数", ", ".join(parsed['key_functions']))
+        # 只显示一次函数列表（优先显示 functions，如果 key_functions 与之不同才显示）
+        functions = parsed.get('functions', [])
+        key_functions = parsed.get('key_functions', [])
+
+        if functions:
+            table.add_row("涉及函数", ", ".join(functions))
+
+        # 只有在 key_functions 存在且与 functions 不同时才显示
+        if key_functions and key_functions != functions:
+            table.add_row("关键函数", ", ".join(key_functions))
 
         if 'inferred_entry' in parsed:
             table.add_row("推断入口", parsed['inferred_entry'])

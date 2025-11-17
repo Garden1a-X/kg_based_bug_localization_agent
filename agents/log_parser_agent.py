@@ -205,8 +205,10 @@ class LogParserAgent(BaseAgent):
         result = {
             'raw_log': log_text,
             'line_matches': matching_result.get('line_matches', []),
-            'key_functions': all_functions,  # 所有匹配到的函数
-            'functions': all_functions,  # 保持向后兼容
+            'functions': all_functions,  # 所有匹配到的函数
+            # 提取错误消息和错误码（使用原有的方法）
+            'error_messages': self._extract_error_messages(log_text),
+            'error_codes': self._extract_error_codes(log_text),
         }
 
         # Mock起始点（暂时固定为probe函数）
