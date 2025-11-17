@@ -237,10 +237,11 @@ def test_specific_function():
     print(f"  ✓ 成功读取源代码 ({len(source_code)} 字符)")
     print(f"\n  源代码预览:")
     print("  " + "-" * 76)
-    for line in source_code.split('\n')[:15]:
+    code_lines = source_code.split('\n')
+    for line in code_lines[:15]:
         print(f"  {line}")
-    if len(source_code.split('\n')) > 15:
-        print(f"  ... (共 {len(source_code.split('\n'))} 行)")
+    if len(code_lines) > 15:
+        print(f"  ... (共 {len(code_lines)} 行)")
     print("  " + "-" * 76)
 
     # 3. LLM检测
