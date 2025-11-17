@@ -849,6 +849,10 @@ class KnowledgeGraphInterface:
                     }
                 ))
 
+        if targets:
+            target_names = [t[0] for t in targets]
+            logger.info(f"✓ 从图谱找到字段 '{field_name}' 的赋值目标: {target_names}")
+
         # 5. Fallback 到 Mock 数据
         if not targets:
             logger.debug(f"图谱查询失败，尝试 Mock 数据")
