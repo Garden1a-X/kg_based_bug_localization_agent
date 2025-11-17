@@ -220,7 +220,10 @@ class LogParserAgent(BaseAgent):
         else:
             result['inferred_error_point'] = None
 
-        # 推断中间节点：除了第一个之外的所有函数
+        # 关键函数：所有从日志匹配到的函数（包括错误点和中间点）
+        result['key_functions'] = all_functions
+
+        # 推断中间节点：除了第一个（错误点）之外的所有函数
         if len(all_functions) > 1:
             result['intermediate_functions'] = all_functions[1:]
         else:
