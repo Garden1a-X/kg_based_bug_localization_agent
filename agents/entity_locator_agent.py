@@ -40,10 +40,32 @@ class EntityLocatorAgent(BaseAgent):
         if 'inferred_error_point' in parsed_log:
             result['end_entity'] = self._locate_function(parsed_log['inferred_error_point'])
         
-        # 3. 如果没有推断出来，尝试从日志中的函数列表定位
+        # 3. 如果有关键函数，定位它们
+        if 'key_functions' in parsed_log:
+            key_entities = []
+            for func_name in parsed_log['key_functions']:
+                entity = self._locate_function(func_name)
+                if entity:
+                    key_entities.append(entity)
+
+            if key_entities:
+                result['intermediate_entities'] = key_entities
+
+                # 如果还没有终点，使用第一个关键函数（通常是最深层的）
+                if not result['end_entity']:
+                    result['end_entity'] = key_entities[0]
+                    self.log_info(f"使用关键函数作为终点: {key_entities[0]['name']}")
+
+        # 4. 如果还没有起点，使用默认的probe函数
+        if not result['start_entity']:
+            default_entry = 'dw_mci_pltfm_probe'
+            self.log_info(f"尝试使用默认入口: {default_entry}")
+            result['start_entity'] = self._locate_function(default_entry)
+
+        # 5. 如果还没有推断出来，尝试从日志中的函数列表定位
         if not result['start_entity'] or not result['end_entity']:
             result = self._locate_from_function_list(parsed_log['functions'], result)
-        
+
         # 记录结果
         if result['start_entity']:
             self.log_success(f"起点: {result['start_entity']['name']}")
@@ -122,23 +144,37 @@ class EntityLocatorAgent(BaseAgent):
         
         return result
     
-    def locate_specific(self, start_name: str, end_name: str) -> Dict:
+    def locate_specific(self, start_name: str, end_name: str, intermediate_names: list = None) -> Dict:
         """
-        直接定位指定的起点和终点
-        
+        直接定位指定的起点、终点和中间节点
+
         Args:
             start_name: 起点函数名
             end_name: 终点函数名
-            
+            intermediate_names: 中间节点函数名列表（可选）
+
         Returns:
             定位结果
         """
         self.log_start(f"定位指定函数: {start_name} -> {end_name}")
-        
+
         result = {
             'start_entity': self._locate_function(start_name),
             'end_entity': self._locate_function(end_name),
             'intermediate_entities': []
         }
-        
+
+        # 定位中间节点
+        if intermediate_names:
+            key_entities = []
+            for func_name in intermediate_names:
+                entity = self._locate_function(func_name)
+                if entity:
+                    key_entities.append(entity)
+                    self.log_info(f"✓ 定位到中间节点: {func_name}")
+
+            if key_entities:
+                result['intermediate_entities'] = key_entities
+                self.log_success(f"定位到 {len(key_entities)} 个中间节点")
+
         return result
