@@ -7,33 +7,22 @@ LLM辅助的间接调用检测器
 
 from typing import List, Dict, Optional
 import json
-from openai import OpenAI
 from loguru import logger
 
 
 class LLMIndirectCallDetector:
     """LLM间接调用检测器"""
 
-    def __init__(
-        self,
-        kg_interface,
-        api_key: str = "",
-        base_url: str = "http://10.12.208.86:8502",
-        model: str = "gpt-4o-mini"
-    ):
+    def __init__(self, kg_interface, llm_client):
         """
         初始化
 
         Args:
             kg_interface: 知识图谱接口
-            api_key: OpenAI API密钥
-            base_url: API服务地址
-            model: 使用的模型
+            llm_client: 统一的LLM客户端实例
         """
         self.kg = kg_interface
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
-        self.model = model
-        self.timeout = 180
+        self.llm_client = llm_client
 
     def detect_indirect_callees(self, func_name: str) -> List[tuple]:
         """
@@ -148,24 +137,42 @@ class LLMIndirectCallDetector:
         Returns:
             字段名列表，例如 ["execute_tuning"]
         """
+        # 使用统一的LLM客户端
+        if not self.llm_client or not self.llm_client.is_available():
+            logger.debug("LLM客户端不可用，无法提取函数指针字段")
+            return []
+
+        try:
+            # 使用 llm_client 的 extract_function_pointer_fields 方法
+            field_names = self.llm_client.extract_function_pointer_fields(func_name, source_code)
+            return field_names if field_names else []
+
+        except Exception as e:
+            logger.error(f"LLM提取字段名失败: {e}")
+            return []
+
+        # 下面的代码已废弃，保留作为参考
+        """
         prompt = self._build_extraction_prompt(source_code)
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert in C code analysis, specializing in identifying function pointer calls."
-                    },
-                    {"role": "user", "content": prompt}
-                ],
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are an expert in C code analysis, specializing in identifying function pointer calls."
+                },
+                {"role": "user", "content": prompt}
+            ]
+
+            content = self.llm_client.chat_completion(
+                messages=messages,
                 temperature=0.3,
                 max_tokens=1000,
-                timeout=self.timeout
+                timeout=180
             )
 
-            content = response.choices[0].message.content.strip()
+            if not content:
+                return []
 
             # 解析JSON
             indirect_calls = self._parse_llm_response(content)

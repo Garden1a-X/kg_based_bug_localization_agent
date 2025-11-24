@@ -28,15 +28,8 @@ class CallChainTracerAgent(BaseAgent):
 
         # 如果有 llm_client，创建 SourceCodeBridgeFinder
         if llm_client and hasattr(llm_client, 'is_available') and llm_client.is_available():
-            # 从 llm_client 中提取配置
-            api_key = getattr(llm_client, 'api_key', '')
-            base_url = getattr(llm_client, 'base_url', 'http://10.12.208.86:8502')
-            model = getattr(llm_client, 'model', 'gpt-4o-mini')
-            self.bridge_finder = SourceCodeBridgeFinder(
-                api_key=api_key,
-                base_url=base_url,
-                model=model
-            )
+            # 直接传递 llm_client，不再提取参数
+            self.bridge_finder = SourceCodeBridgeFinder(llm_client=llm_client)
         else:
             self.bridge_finder = None
 

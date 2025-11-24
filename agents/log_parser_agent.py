@@ -11,9 +11,10 @@ from data.mock_indirect_calls import MOCK_FAIL_MESSAGES, _extract_message_patter
 class LogParserAgent(BaseAgent):
     """日志解析Agent - 基于FAIL_MESSAGE实体匹配"""
 
-    def __init__(self, enable_llm: bool = False):
+    def __init__(self, enable_llm: bool = False, llm_client=None):
         super().__init__("LogParser")
         self.enable_llm = enable_llm
+        self.llm_client = llm_client  # 统一的LLM客户端
 
         # 定义常见的错误模式（保留用于fallback）
         self.error_patterns = {
@@ -253,55 +254,23 @@ class LogParserAgent(BaseAgent):
         Returns:
             LLM分析结果
         """
+        # 使用统一的LLM客户端
+        if not self.llm_client or not self.llm_client.is_available():
+            self.log_info("LLM客户端不可用，跳过LLM分析")
+            return {"error": "LLM not available"}
+
         try:
-            from openai import OpenAI
+            # 使用 llm_client 的 analyze_log 方法
+            llm_result = self.llm_client.analyze_log(log_text)
 
-            client = OpenAI(api_key="", base_url="http://10.12.208.86:8502")
+            if not llm_result:
+                return {"error": "LLM返回空结果"}
 
-            # 构建提示词（简化版本）
-            prompt = f"""你是一个Linux内核驱动错误分析专家。请分析以下错误日志：
+            # 如果LLM没有返回 intermediate_entities，添加空列表
+            if 'intermediate_entities' not in llm_result:
+                llm_result['intermediate_entities'] = []
 
-## 错误日志
-```
-{log_text.strip()}
-```
-
-## 匹配到的函数
-{', '.join(matching_result.get('all_functions', []))}
-
-请推断：
-1. 错误点函数（最底层出错的函数）
-2. 中间关键函数
-
-以JSON格式返回：
-{{
-  "end_entity": "错误点函数名",
-  "intermediate_entities": ["中间函数1", "中间函数2"]
-}}
-"""
-
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "你是一个Linux内核驱动错误分析专家。"},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=500,
-                timeout=180
-            )
-
-            llm_response = response.choices[0].message.content
-
-            # 解析JSON
-            import json
-            json_text = llm_response
-            if "```json" in json_text:
-                json_text = json_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in json_text:
-                json_text = json_text.split("```")[1].split("```")[0].strip()
-
-            return json.loads(json_text)
+            return llm_result
 
         except Exception as e:
             self.log_info(f"LLM分析失败: {e}")

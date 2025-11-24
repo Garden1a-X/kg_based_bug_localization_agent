@@ -2,11 +2,12 @@
 主协调器
 协调所有Agent完成Bug定位任务
 """
-from typing import Dict
+from typing import Dict, Optional
 from data.kg_interface import KnowledgeGraphInterface
 from agents.log_parser_agent import LogParserAgent
 from agents.entity_locator_agent import EntityLocatorAgent
 from agents.chain_tracer_agent import CallChainTracerAgent
+from llm import LLMClient
 from utils.logger import logger, print_header, print_step, print_success, print_error, print_panel
 from rich.console import Console
 from rich.table import Table
@@ -17,29 +18,64 @@ console = Console()
 class MasterCoordinator:
     """主协调器"""
 
-    def __init__(self, data_dir: str = None, llm_client=None, enable_llm_detection: bool = False, enable_llm_log_analysis: bool = False):
+    def __init__(
+        self,
+        data_dir: str = None,
+        llm_client: Optional[LLMClient] = None,
+        enable_llm_detection: bool = False,
+        enable_llm_log_analysis: bool = False,
+        llm_config: Optional[Dict] = None
+    ):
         """
         初始化协调器
 
         Args:
             data_dir: 数据文件目录
-            llm_client: LLM客户端（可选）
-            enable_llm_detection: 是否启用LLM辅助间接调用检测（预处理模式）
+            llm_client: LLM客户端（可选，如果不提供则根据配置自动创建）
+            enable_llm_detection: 是否启用LLM辅助间接调用检测（运行时）
             enable_llm_log_analysis: 是否启用LLM辅助日志分析
+            llm_config: LLM配置（如果需要自动创建LLM客户端）
+                例如: {'backend': 'openai', 'model': 'gpt-4o-mini', 'base_url': '...'}
         """
         logger.info("初始化主协调器...")
 
-        # 创建知识图谱接口
-        self.kg = KnowledgeGraphInterface(data_dir, enable_llm_detection=enable_llm_detection)
+        # 如果需要LLM但没有提供客户端，则创建统一的LLM客户端
+        if (enable_llm_detection or enable_llm_log_analysis) and llm_client is None:
+            if llm_config is None:
+                # 使用默认配置
+                llm_config = {
+                    'backend': 'openai',
+                    'model': 'gpt-4o-mini',
+                    'base_url': 'http://10.12.208.86:8502',
+                    'api_key': ''
+                }
+
+            logger.info("创建统一的LLM客户端...")
+            llm_client = LLMClient(**llm_config)
+
+            if llm_client.is_available():
+                logger.success(f"LLM客户端初始化成功: {llm_client.get_backend_info()}")
+            else:
+                logger.warning("LLM客户端初始化失败，将禁用LLM功能")
+                llm_client = None
+
+        self.llm_client = llm_client
+
+        # 创建知识图谱接口（传入LLM客户端）
+        self.kg = KnowledgeGraphInterface(
+            data_dir,
+            enable_llm_detection=enable_llm_detection,
+            llm_client=llm_client
+        )
 
         # 注意：不再需要LLM预处理，因为图谱中已经包含了间接调用结构（CALLS + ASSIGNED_TO）
         # LLM只在运行时用于分析delayed work的间接调用（_detect_async_call）
-        # if enable_llm_detection:
-        #     logger.info("LLM间接调用检测已启用，开始预处理...")
-        #     self.kg.preprocess_llm_indirect_calls()
 
-        # 创建各个Agent
-        self.log_parser = LogParserAgent(enable_llm=enable_llm_log_analysis)
+        # 创建各个Agent（传入LLM客户端）
+        self.log_parser = LogParserAgent(
+            enable_llm=enable_llm_log_analysis,
+            llm_client=llm_client
+        )
         self.entity_locator = EntityLocatorAgent(self.kg)
         self.chain_tracer = CallChainTracerAgent(self.kg, llm_client)
 

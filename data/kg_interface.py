@@ -22,19 +22,21 @@ from data.mock_indirect_calls import (
 class KnowledgeGraphInterface:
     """知识图谱接口 - 基于JSON文件"""
 
-    def __init__(self, data_dir: str = None, enable_llm_detection: bool = False):
+    def __init__(self, data_dir: str = None, enable_llm_detection: bool = False, llm_client=None):
         """
         初始化知识图谱接口
 
         Args:
             data_dir: 数据文件所在目录
-            enable_llm_detection: 是否启用LLM辅助间接调用检测（预处理模式）
+            enable_llm_detection: 是否启用LLM辅助间接调用检测（运行时）
+            llm_client: LLM客户端实例（可选）
         """
         if data_dir is None:
             data_dir = os.getenv('KG_DATA_DIR', '/data/xuao/code_kg_search/linux_test/data')
 
         self.data_dir = Path(data_dir)
         self.enable_llm_detection = enable_llm_detection
+        self.llm_client = llm_client  # 统一的LLM客户端
 
         # 缓存数据
         self.entities = {}  # {entity_type: {name: entity}}
@@ -794,65 +796,15 @@ class KnowledgeGraphInterface:
         Returns:
             字段名（如 'detect'），如果未找到则返回 None
         """
-        from openai import OpenAI
-
-        client = OpenAI(api_key="", base_url="http://10.12.208.86:8502")
-
-        prompt = f"""分析以下C函数，找到它调用 {callee_name} 时传入的work参数。
-
-函数名: {caller_name}
-源代码:
-```c
-{caller_source}
-```
-
-任务：
-找到调用 {callee_name}(...) 的代码行，提取第一个参数（通常是&var形式）。
-如果参数是 &host->detect，则字段名是 detect。
-如果参数是 &work，则字段名是 work。
-
-返回JSON格式：
-{{
-  "found": true/false,
-  "call_expression": "完整的调用表达式",
-  "first_parameter": "第一个参数的完整形式（如 &host->detect）",
-  "field_name": "提取的字段名（如 detect）"
-}}
-
-如果没找到调用，返回：
-{{
-  "found": false
-}}
-
-只返回JSON，不要其他说明。"""
+        # 使用统一的LLM客户端
+        if not self.llm_client or not self.llm_client.is_available():
+            logger.debug("LLM客户端不可用，无法提取异步参数")
+            return None
 
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a C code analyzer."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=800,
-                timeout=180
+            field_name = self.llm_client.extract_async_parameter(
+                caller_name, callee_name, caller_source
             )
-
-            content = response.choices[0].message.content.strip()
-
-            # 解析JSON
-            if '```json' in content:
-                content = content.split('```json')[1].split('```')[0].strip()
-            elif '```' in content:
-                content = content.split('```')[1].split('```')[0].strip()
-
-            import json
-            result = json.loads(content)
-
-            if not result.get('found', False):
-                return None
-
-            field_name = result.get('field_name')
             return field_name
 
         except Exception as e:

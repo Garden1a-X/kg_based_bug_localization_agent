@@ -5,30 +5,21 @@
 """
 
 from typing import Optional, Dict, List
-from openai import OpenAI
+from loguru import logger
 import json
 
 
 class SourceCodeBridgeFinder:
     """源码桥接查找器 - 使用LLM分析源码找出异步/函数指针调用"""
 
-    def __init__(
-        self,
-        api_key: str = "",
-        base_url: str = "http://10.12.208.86:8502",
-        model: str = "gpt-4o-mini"
-    ):
+    def __init__(self, llm_client):
         """
         初始化
 
         Args:
-            api_key: OpenAI API密钥
-            base_url: API服务地址
-            model: 使用的模型
+            llm_client: 统一的LLM客户端实例
         """
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
-        self.model = model
-        self.timeout = 180
+        self.llm_client = llm_client
 
     def analyze_async_connection(
         self,
@@ -58,31 +49,39 @@ class SourceCodeBridgeFinder:
             func_a_source, func_b_source, init_func_sources
         )
 
+        # 使用统一的LLM客户端
+        if not self.llm_client or not self.llm_client.is_available():
+            logger.warning("LLM客户端不可用，无法进行源码桥接分析")
+            return None
+
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert in Linux kernel source code analysis, "
-                                   "specializing in identifying async callbacks, function pointers, "
-                                   "and delayed work connections."
-                    },
-                    {"role": "user", "content": prompt}
-                ],
+            # 使用 llm_client 的 chat_completion 方法
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are an expert in Linux kernel source code analysis, "
+                               "specializing in identifying async callbacks, function pointers, "
+                               "and delayed work connections."
+                },
+                {"role": "user", "content": prompt}
+            ]
+
+            content = self.llm_client.chat_completion(
+                messages=messages,
                 temperature=0.3,
                 max_tokens=1000,
-                timeout=self.timeout
+                timeout=180
             )
 
-            content = response.choices[0].message.content.strip()
+            if not content:
+                return None
 
             # 解析JSON输出
             result = self._parse_analysis_result(content)
             return result
 
         except Exception as e:
-            print(f"LLM分析失败: {e}")
+            logger.error(f"LLM分析失败: {e}")
             return None
 
     def _build_async_analysis_prompt(
