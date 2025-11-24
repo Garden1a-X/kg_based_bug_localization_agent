@@ -124,6 +124,26 @@ class MasterCoordinator:
                 # 手动指定子图
                 selected_subgraph = subgraph_override
                 logger.info(f"使用手动指定的子图: {selected_subgraph}")
+
+                # 获取子图路径并重新加载KG
+                subgraph_path = self.subgraph_selector.get_subgraph_path(selected_subgraph)
+                if subgraph_path:
+                    logger.info(f"使用子图数据: {subgraph_path}")
+
+                    # 重新初始化知识图谱接口，使用选中的子图
+                    self.kg = KnowledgeGraphInterface(
+                        str(subgraph_path),
+                        enable_llm_detection=self.enable_llm_detection,
+                        llm_client=self.llm_client
+                    )
+
+                    # 重新初始化依赖KG的Agent
+                    self.entity_locator = EntityLocatorAgent(self.kg)
+                    self.chain_tracer = CallChainTracerAgent(self.kg, self.llm_client)
+
+                    print_success(f"已切换到子图: {selected_subgraph}")
+                else:
+                    logger.warning(f"子图路径不存在: {selected_subgraph}，使用默认图谱")
             else:
                 # 自动选择子图
                 print_step(1, 5, "选择相关子图")
@@ -400,7 +420,8 @@ class MasterCoordinator:
         self,
         log_text: str,
         k: int = 5,
-        error_line: int = None
+        error_line: int = None,
+        subgraph_override: Optional[str] = None
     ) -> Dict:
         """
         处理错误日志，返回Top-K条调用链
@@ -409,14 +430,77 @@ class MasterCoordinator:
             log_text: 错误日志文本
             k: 返回路径数量上限
             error_line: 已废弃（保留用于兼容性，不再用于剪枝）
+            subgraph_override: 手动指定子图（可选），如果提供则跳过自动选择
 
         Returns:
             包含多条路径的分析结果
         """
         print_header(f"Bug定位分析流程 (Top-{k}路径)")
 
+        # 第0步（可选）：子图选择
+        selected_subgraph = None
+        step_offset = 0
+        if self.enable_subgraph_selection and self.subgraph_selector:
+            if subgraph_override:
+                # 手动指定子图
+                selected_subgraph = subgraph_override
+                logger.info(f"使用手动指定的子图: {selected_subgraph}")
+
+                # 获取子图路径并重新加载KG
+                subgraph_path = self.subgraph_selector.get_subgraph_path(selected_subgraph)
+                if subgraph_path:
+                    logger.info(f"使用子图数据: {subgraph_path}")
+
+                    # 重新初始化知识图谱接口，使用选中的子图
+                    self.kg = KnowledgeGraphInterface(
+                        str(subgraph_path),
+                        enable_llm_detection=self.enable_llm_detection,
+                        llm_client=self.llm_client
+                    )
+
+                    # 重新初始化依赖KG的Agent
+                    self.entity_locator = EntityLocatorAgent(self.kg)
+                    self.chain_tracer = CallChainTracerAgent(self.kg, self.llm_client)
+
+                    print_success(f"已切换到子图: {selected_subgraph}")
+                else:
+                    logger.warning(f"子图路径不存在: {selected_subgraph}，使用默认图谱")
+            else:
+                # 自动选择子图
+                step_offset = 1
+                print_step(1, 5, "选择相关子图")
+                selected_subgraphs = self.subgraph_selector.select_by_log(log_text, top_k=1)
+
+                if selected_subgraphs:
+                    selected_subgraph = selected_subgraphs[0]
+                    logger.info(f"LLM选择的子图: {selected_subgraph}")
+
+                    # 获取子图路径
+                    subgraph_path = self.subgraph_selector.get_subgraph_path(selected_subgraph)
+                    if subgraph_path:
+                        logger.info(f"使用子图数据: {subgraph_path}")
+
+                        # 重新初始化知识图谱接口，使用选中的子图
+                        self.kg = KnowledgeGraphInterface(
+                            str(subgraph_path),
+                            enable_llm_detection=self.enable_llm_detection,
+                            llm_client=self.llm_client
+                        )
+
+                        # 重新初始化依赖KG的Agent
+                        self.entity_locator = EntityLocatorAgent(self.kg)
+                        self.chain_tracer = CallChainTracerAgent(self.kg, self.llm_client)
+
+                        print_success(f"已切换到子图: {selected_subgraph}")
+                    else:
+                        logger.warning(f"子图路径不存在: {selected_subgraph}，使用默认图谱")
+                else:
+                    logger.warning("未选择到子图，使用默认图谱")
+
+        total_steps = 4 + step_offset
+
         # 第1步：日志解析
-        print_step(1, 4, "解析错误日志")
+        print_step(1 + step_offset, total_steps, "解析错误日志")
         if 'mmc' in log_text.lower() or 'tuning' in log_text.lower():
             parsed_log = self.log_parser.parse_mmc_log(log_text)
         else:
@@ -424,7 +508,7 @@ class MasterCoordinator:
         self._display_parsed_log(parsed_log)
 
         # 第2步：实体定位
-        print_step(2, 4, "在图谱中定位实体")
+        print_step(2 + step_offset, total_steps, "在图谱中定位实体")
         entities = self.entity_locator.execute(parsed_log)
         self._display_entities(entities)
 
@@ -439,7 +523,7 @@ class MasterCoordinator:
             }
 
         # 第3步：追踪Top-K条调用链
-        print_step(3, 4, "追踪Top-K条调用链")
+        print_step(3 + step_offset, total_steps, "追踪Top-K条调用链")
         paths = self.chain_tracer.execute_top_k(
             entities['start_entity'],
             entities['end_entity'],
@@ -450,7 +534,7 @@ class MasterCoordinator:
         self._display_multiple_chains(paths)
 
         # 第4步：生成报告
-        print_step(4, 4, "生成分析报告")
+        print_step(4 + step_offset, total_steps, "生成分析报告")
         report = self._generate_multi_path_report(parsed_log, entities, paths)
 
         print_success(f"分析完成！找到 {len(paths)} 条路径")
@@ -464,7 +548,8 @@ class MasterCoordinator:
         end_func: str,
         intermediate_funcs: list = None,
         k: int = 5,
-        error_line: int = None
+        error_line: int = None,
+        subgraph_override: Optional[str] = None
     ) -> Dict:
         """
         使用指定的起点、终点和中间节点，返回Top-K条调用链
@@ -476,18 +561,85 @@ class MasterCoordinator:
             intermediate_funcs: 中间节点函数名列表（可选）
             k: 返回路径数量上限
             error_line: 已废弃（保留用于兼容性，不再用于剪枝）
+            subgraph_override: 手动指定子图（可选），如果提供则跳过自动选择
 
         Returns:
             包含多条路径的分析结果
         """
         print_header(f"Bug定位分析流程（指定起止点，Top-{k}路径）")
 
+        # 第0步（可选）：子图选择
+        selected_subgraph = None
+        step_offset = 0
+        if self.enable_subgraph_selection and self.subgraph_selector:
+            if subgraph_override:
+                # 手动指定子图
+                selected_subgraph = subgraph_override
+                logger.info(f"使用手动指定的子图: {selected_subgraph}")
+
+                # 获取子图路径并重新加载KG
+                subgraph_path = self.subgraph_selector.get_subgraph_path(selected_subgraph)
+                if subgraph_path:
+                    logger.info(f"使用子图数据: {subgraph_path}")
+
+                    # 重新初始化知识图谱接口，使用选中的子图
+                    self.kg = KnowledgeGraphInterface(
+                        str(subgraph_path),
+                        enable_llm_detection=self.enable_llm_detection,
+                        llm_client=self.llm_client
+                    )
+
+                    # 重新初始化依赖KG的Agent
+                    self.entity_locator = EntityLocatorAgent(self.kg)
+                    self.chain_tracer = CallChainTracerAgent(self.kg, self.llm_client)
+
+                    print_success(f"已切换到子图: {selected_subgraph}")
+                else:
+                    logger.warning(f"子图路径不存在: {selected_subgraph}，使用默认图谱")
+            else:
+                # 对于指定函数的情况，可以基于函数名选择子图
+                step_offset = 1
+                print_step(1, 4, "选择相关子图（基于函数名）")
+                function_names = [start_func, end_func]
+                if intermediate_funcs:
+                    function_names.extend(intermediate_funcs)
+
+                selected_subgraphs = self.subgraph_selector.select_by_functions(function_names, top_k=1)
+
+                if selected_subgraphs:
+                    selected_subgraph = selected_subgraphs[0]
+                    logger.info(f"LLM选择的子图: {selected_subgraph}")
+
+                    # 获取子图路径
+                    subgraph_path = self.subgraph_selector.get_subgraph_path(selected_subgraph)
+                    if subgraph_path:
+                        logger.info(f"使用子图数据: {subgraph_path}")
+
+                        # 重新初始化知识图谱接口，使用选中的子图
+                        self.kg = KnowledgeGraphInterface(
+                            str(subgraph_path),
+                            enable_llm_detection=self.enable_llm_detection,
+                            llm_client=self.llm_client
+                        )
+
+                        # 重新初始化依赖KG的Agent
+                        self.entity_locator = EntityLocatorAgent(self.kg)
+                        self.chain_tracer = CallChainTracerAgent(self.kg, self.llm_client)
+
+                        print_success(f"已切换到子图: {selected_subgraph}")
+                    else:
+                        logger.warning(f"子图路径不存在: {selected_subgraph}，使用默认图谱")
+                else:
+                    logger.warning("未选择到子图，使用默认图谱")
+
+        total_steps = 3 + step_offset
+
         # 第1步：日志解析（仅用于报告）
-        print_step(1, 3, "解析错误日志")
+        print_step(1 + step_offset, total_steps, "解析错误日志")
         parsed_log = self.log_parser.execute(log_text)
 
         # 第2步：定位指定函数
-        print_step(2, 3, "定位指定函数")
+        print_step(2 + step_offset, total_steps, "定位指定函数")
         entities = self.entity_locator.locate_specific(
             start_func,
             end_func,
@@ -503,7 +655,7 @@ class MasterCoordinator:
             }
 
         # 第3步：追踪Top-K条调用链
-        print_step(3, 3, "追踪Top-K条调用链")
+        print_step(3 + step_offset, total_steps, "追踪Top-K条调用链")
         paths = self.chain_tracer.execute_top_k(
             entities['start_entity'],
             entities['end_entity'],
