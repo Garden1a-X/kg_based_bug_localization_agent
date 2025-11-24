@@ -1,82 +1,106 @@
 # Bug定位系统 - 基于知识图谱与LLM
 
-一个基于知识图谱的Linux内核Bug定位系统，结合大语言模型(LLM)辅助间接调用检测，实现从错误日志到可疑代码路径的自动化追踪。
+一个基于知识图谱的Linux内核Bug定位系统，结合大语言模型(LLM)实现智能调用链追踪。支持**子图自动选择**、**Top-K路径搜索**和**间接调用检测**。
 
-## 📋 目录
-
-- [核心功能](#核心功能)
-- [系统架构](#系统架构)
-- [快速开始](#快速开始)
-- [主要特性](#主要特性)
-- [配置说明](#配置说明)
-- [使用示例](#使用示例)
-- [依赖项](#依赖项)
-- [未来计划](#未来计划)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
 ---
 
-## 🎯 核心功能
+## 📋 目录
 
-### 1. Top-K路径搜索
+- [核心特性](#核心特性)
+- [系统架构](#系统架构)
+- [快速开始](#快速开始)
+- [使用方式](#使用方式)
+- [配置说明](#配置说明)
+- [项目结构](#项目结构)
+- [依赖项](#依赖项)
+- [测试](#测试)
+- [文档](#文档)
+
+---
+
+## 🎯 核心特性
+
+### 1. 子图自动选择 ⭐ NEW
+
+- **智能选择**：基于错误日志内容，LLM自动选择最相关的Linux驱动子系统（MMC、USB、Network等30+个子系统）
+- **元数据驱动**：详细的子系统元数据（关键字、常见函数、描述）指导LLM选择
+- **灵活模式**：支持自动选择、手动指定或传统方式（直接指定子图路径）
+
+```bash
+# 自动选择mmc子图
+python run_bug_localization.py \
+    --data-dir /data/.../data \  # 父目录
+    --log "mmc0: tuning execution failed: -1" \
+    --enable-subgraph-selection  # LLM自动选择
+```
+
+### 2. Top-K路径搜索
+
 - **多路径分析**：返回Top-K条从入口到错误点的调用链
-- **得分排序**：基于路径长度、间接调用数量、关键函数覆盖率综合评分
-- **关键函数检测**：自动识别日志中的关键函数并优先选择经过这些函数的路径
+- **智能评分**：综合考虑路径长度、间接调用数量、调用行号、关键函数覆盖率
+- **关键函数检测**：自动识别日志中的关键函数并优先选择包含这些函数的路径
 
-### 2. LLM辅助间接调用检测
-- **函数指针调用检测**：LLM分析源码提取结构体字段，查询图谱ASSIGNED_TO关系
-- **异步调用检测**：识别`schedule_*`、`queue_work`等异步调度函数，追踪工作队列回调
-- **预处理模式**：BFS前批量处理配置的函数，缓存结果供搜索使用
+### 3. LLM辅助间接调用检测
 
-### 3. 双模式支持
-- **自动推断模式**：从日志自动提取入口、错误点和关键函数
-- **手动指定模式**：显式指定起点、终点和中间节点
+- **函数指针调用**：LLM分析源码提取结构体字段，查询图谱ASSIGNED_TO关系
+- **异步调用检测**：识别`schedule_*`、`queue_work`等异步调度，追踪工作队列回调
+- **延迟工作分析**：检测`schedule_delayed_work`并提取工作结构体字段
+
+### 4. 统一LLM客户端架构
+
+- **多后端支持**：支持OpenAI API、vLLM等OpenAI兼容服务
+- **专用方法**：针对不同场景的专用接口（日志分析、代码关系分析、参数提取等）
+- **易于扩展**：基于策略模式，可轻松添加新的LLM后端
+
+### 5. 双模式支持
+
+- **自动推断模式**：从日志自动提取入口函数、错误点和关键函数
+- **手动指定模式**：显式指定起点、终点和中间节点，适用于已知调用链的场景
 
 ---
 
 ## 🏗️ 系统架构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      MasterCoordinator                       │
-│                      (主协调器)                               │
-└───────────────┬─────────────────────────────────────────────┘
-                │
-        ┌───────┼───────┬───────────┬─────────────┐
-        │       │       │           │             │
-        ▼       ▼       ▼           ▼             ▼
-   ┌────────┬────────┬──────┬──────────┬─────────────────┐
-   │  Log   │Entity  │Chain │ Source   │   LLM Indirect  │
-   │ Parser │Locator │Tracer│Code Bridge│  Call Detector │
-   └────────┴────────┴──────┴──────────┴─────────────────┘
-                │
-                ▼
-        ┌───────────────┐
-        │ KG Interface  │
-        │ (知识图谱)     │
-        └───────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                      MasterCoordinator                             │
+│                      (主协调器)                                      │
+└──────────────┬────────────────────────────────────────────────────┘
+               │
+       ┌───────┼───────┬──────────┬──────────────┬─────────────┐
+       │       │       │          │              │             │
+       ▼       ▼       ▼          ▼              ▼             ▼
+  ┌────────┬────────┬──────┬──────────┬──────────────┬────────────┐
+  │Subgraph│  Log   │Entity│  Chain   │ Source Code  │LLM Indirect│
+  │Selector│ Parser │Locator│ Tracer  │Bridge Finder │Call Detector│
+  └────────┴────────┴────────┴──────┴──────────────┴────────────┘
+               │
+               ▼
+       ┌───────────────┐        ┌─────────────────┐
+       │ KG Interface  │───────►│   LLM Client    │
+       │ (知识图谱)     │        │  (统一接口)      │
+       └───────────────┘        └─────────────────┘
+               │                        │
+               ▼                        ▼
+       ┌───────────────┐        ┌─────────────────┐
+       │   Neo4j DB    │        │ OpenAI/vLLM/... │
+       │   (图数据库)   │        │  (LLM后端)       │
+       └───────────────┘        └─────────────────┘
 ```
 
-### Agent系统
+### 核心组件
 
-| Agent | 职责 | 输入 | 输出 |
-|-------|------|------|------|
-| **LogParser** | 解析错误日志 | 日志文本 | 错误码、关键函数、推断入口/错误点 |
-| **EntityLocator** | 在图谱中定位函数实体 | 函数名列表 | 函数实体(id, name, file) |
-| **ChainTracer** | Top-K路径搜索 | 起点、终点、中间节点 | Top-K路径及得分 |
-| **SourceCodeBridgeFinder** | LLM源码断点连接 | 断开的路径段 | 源码级连接建议 |
-
-### 数据层
-
-- **KnowledgeGraphInterface**：图谱查询接口
-  - 函数查询（精确/模糊）
-  - CALLS关系查询
-  - ASSIGNED_TO关系查询（字段→函数映射）
-  - Top-K路径搜索（BFS + 优先队列）
-
-- **LLMIndirectCallDetector**：LLM间接调用检测
-  - 函数指针字段提取
-  - 异步调用参数提取
-  - 批量预处理与缓存
+| 组件 | 职责 | 主要功能 |
+|------|------|----------|
+| **SubgraphSelector** | 子图智能选择 | 基于日志/函数名选择最相关子图 |
+| **LogParser** | 日志解析 | 提取错误码、关键函数、推断入口/错误点 |
+| **EntityLocator** | 实体定位 | 在图谱中查找函数实体（精确/模糊匹配） |
+| **ChainTracer** | 调用链追踪 | Top-K路径搜索、断点修复、间接调用检测 |
+| **SourceCodeBridgeFinder** | 源码桥接 | LLM分析源码连接断开的路径段 |
+| **KGInterface** | 图谱接口 | 统一的知识图谱查询接口 |
+| **LLMClient** | LLM客户端 | 统一的LLM调用接口，支持多后端 |
 
 ---
 
@@ -88,424 +112,412 @@
 pip install -r requirements.txt
 ```
 
-### 2. 配置API Key
+主要依赖：
+- `neo4j` - 图数据库驱动
+- `openai` - OpenAI API客户端
+- `pyyaml` - YAML配置文件支持（可选）
+- `rich` - 美化控制台输出
 
-**⚠️ 目前使用OpenAI API，需要配置API Key以启用LLM功能**
+### 2. 准备知识图谱数据
 
-**方式1：环境变量（推荐）**
-```bash
-export OPENAI_API_KEY="your-api-key-here"
-```
-
-**方式2：修改代码**
-
-在 `llm/openai_client.py` 第21行直接设置，或在调用时传入：
-
-```python
-# examples/run_mmc_case_topk.py
-from llm.openai_client import OpenAIClient
-
-coordinator = MasterCoordinator(
-    data_dir=data_dir,
-    llm_client=OpenAIClient(
-        api_key="your-api-key",
-        base_url="http://your-api-endpoint:8502"  # 可选，用于自定义endpoint
-    ),
-    enable_llm_detection=True
-)
-```
-
-**方式3：不使用LLM（仅使用Mock数据）**
-```python
-# 不启用LLM，仅使用图谱+Mock数据
-coordinator = MasterCoordinator(data_dir=data_dir, enable_llm_detection=False)
-```
-
-### 3. 运行示例
+确保知识图谱数据已经构建并存储在Neo4j数据库中，或者使用导出的JSON格式数据：
 
 ```bash
-# 标准模式（不使用LLM，仅图谱+Mock）
+# 数据目录结构
+/data/xuao/code_kg_search/linux_test/data/
+├── mmc/              # MMC子图
+│   ├── entities.json
+│   ├── relations.json
+│   └── call_lines.json
+├── usb/              # USB子图
+├── net/              # 网络子图
+└── ...               # 其他子图
+```
+
+### 3. 配置LLM服务
+
+系统支持OpenAI API和兼容OpenAI的本地服务（如vLLM）：
+
+```bash
+# 使用默认配置（已内置）
+# 默认：http://10.12.208.86:8502，模型：gpt-4o-mini
+
+# 或自定义LLM服务
+python run_bug_localization.py \
+    --llm-base-url http://your-server:8000 \
+    --llm-model your-model-name \
+    ...
+```
+
+### 4. 运行第一个分析
+
+**方式1：命令行模式（推荐用于快速测试）**
+
+```bash
+python run_bug_localization.py \
+    --data-dir /data/xuao/code_kg_search/linux_test/data \
+    --log "mmc0: tuning execution failed: -1" \
+    --enable-subgraph-selection \
+    --k 5
+```
+
+**方式2：配置文件模式（推荐用于生产环境）**
+
+```bash
+# 1. 复制配置模板
+cp config/bug_localization_config.example.yaml config/bug_localization_config.yaml
+
+# 2. 编辑配置文件
+vim config/bug_localization_config.yaml
+
+# 3. 运行预设场景
+python run_with_config.py --scenario mmc_auto
+```
+
+**方式3：使用示例脚本**
+
+```bash
+# 标准模式（启用子图自动选择）
 python examples/run_mmc_case_topk.py
 
-# LLM辅助模式（需要配置API Key）
+# LLM辅助检测模式
 python examples/run_mmc_case_topk.py --llm
+
+# 传统模式（不启用子图选择）
+python examples/run_mmc_case_topk.py --traditional
 ```
 
 ---
 
-## ✨ 主要特性
+## 💡 使用方式
 
-### 1. Top-K路径搜索
+### 命令行模式
 
-**传统方法问题**：单路径可能不准确，需要人工逐个尝试
+#### 自动推断模式（基于日志）
 
-**我们的方案**：
-- 返回Top-K条路径供开发者选择
-- 综合得分：`score = -length + bonus_indirect + bonus_key_functions`
-- 路径排序：优先展示最可能的路径
+最简单的使用方式，系统自动分析日志并推断起止点：
 
-**示例输出**：
-```
-找到 5 条路径:
-
-路径 #1 (长度=16, 间接调用=3, 平均行号=245.3, 得分=150.00, 关键函数覆盖率=67%)
-  0. dw_mci_pltfm_probe
-  1. mmc_add_host
-  ...
-  8. mmc_attach_mmc ✓          ← 青色高亮（关键函数）
-  9. mmc_init_card
-  ...
-  14. mmc_execute_tuning ✓
-  15. dw_mci_execute_tuning (函数指针)  ← 黄色高亮（间接调用）
-  ⚠ 未经过的关键函数: dw_mci_hi3660_execute_tuning
-
-路径 #2 (长度=18, 间接调用=2, 得分=120.00, 关键函数覆盖率=100%)
-  ...
+```bash
+python run_bug_localization.py \
+    --data-dir /data/xuao/code_kg_search/linux_test/data \
+    --log "mmc0: tuning execution failed: -1" \
+    --enable-subgraph-selection \
+    --k 5 \
+    --output output/result.json
 ```
 
-### 2. 关键函数检测与得分调整
+#### 手动指定模式
 
-**日志格式**（栈式存储，逆序）：
-```
-ALL phases bad!                                # 最深函数
-mmc0: tuning execution failed: -1              # 中间函数
-mmc0: error -1 whilst initialising MMC card    # 较早函数
-```
+当你明确知道起点和终点函数时：
 
-**系统行为**：
-- 提取关键函数：`[dw_mci_hi3660_execute_tuning, mmc_execute_tuning, mmc_attach_mmc]`
-- 检查每条路径经过的关键函数
-- 得分调整：每匹配一个关键函数 **+50分**
-- 显示增强：
-  - 青色高亮关键函数
-  - 显示覆盖率
-  - 提示未经过的关键函数
-
-### 3. LLM辅助间接调用检测
-
-#### 问题背景
-知识图谱无法静态分析函数指针和异步调用，导致路径断开：
-```c
-// 函数指针调用：图谱只有 mmc_execute_tuning，缺失具体实现
-host->ops->execute_tuning(host, opcode);  // 实际调用 dw_mci_execute_tuning
-
-// 异步调用：图谱只有 schedule 调用，缺失回调函数
-mmc_schedule_delayed_work(&host->detect, 0);  // 实际回调 mmc_rescan
+```bash
+python run_bug_localization.py \
+    --data-dir /data/xuao/code_kg_search/linux_test/data \
+    --log "mmc0: tuning execution failed: -1" \
+    --start-func dw_mci_pltfm_probe \
+    --end-func dw_mci_execute_tuning \
+    --intermediate-funcs mmc_attach_mmc mmc_execute_tuning \
+    --enable-subgraph-selection \
+    --k 5
 ```
 
-#### 解决方案
-**两阶段检测**：
+#### 从文件读取日志
 
-**阶段1：LLM源码分析**
-- 函数指针：提取字段名 `ops.execute_tuning`
-- 异步调用：提取参数字段名 `detect`
+```bash
+python run_bug_localization.py \
+    --data-dir /data/xuao/code_kg_search/linux_test/data \
+    --log-file error.log \
+    --enable-subgraph-selection \
+    --k 5
+```
 
-**阶段2：图谱查询**
-- 查询ASSIGNED_TO关系：`detect → mmc_rescan`
-- Fallback到Mock数据（如果图谱不完善）
+#### 启用LLM辅助功能
 
-**预处理模式**：
+```bash
+# 启用间接调用检测
+python run_bug_localization.py \
+    --data-dir /data/xuao/code_kg_search/linux_test/data \
+    --log "mmc0: tuning execution failed: -1" \
+    --enable-llm-detection \
+    --enable-subgraph-selection \
+    --k 5
+
+# 启用日志分析
+python run_bug_localization.py \
+    --data-dir /data/xuao/code_kg_search/linux_test/data \
+    --log "mmc0: tuning execution failed: -1" \
+    --enable-llm-log-analysis \
+    --enable-subgraph-selection \
+    --k 5
+```
+
+### 配置文件模式
+
+适合固定配置、反复使用的场景：
+
+#### 1. 配置文件示例
+
 ```yaml
-# config/indirect_call_detection.yaml
-functions_need_llm_detection:
-  - mmc_execute_tuning
-  - dw_mci_execute_tuning
+# bug_localization_config.yaml
+data_dir: "/data/xuao/code_kg_search/linux_test/data"
+top_k: 5
 
-async_call_detection:
-  keywords:
-    - schedule
-    - delayed_work
-    - queue_work
+subgraph_selection:
+  enabled: true
+  manual_subgraph: null  # 或指定 "mmc"
+
+llm:
+  detection:
+    enabled: true
+  log_analysis:
+    enabled: false
+  model: "gpt-4o-mini"
+  base_url: "http://10.12.208.86:8502"
+
+output:
+  directory: "output"
+  filename: "result.json"
+
+scenarios:
+  mmc_auto:
+    description: "MMC错误自动推断"
+    log_file: "examples/logs/mmc_error.log"
+    mode: "auto"
 ```
 
-### 4. 显示优化
+#### 2. 使用预设场景
 
-**路径可视化**：
-- **普通函数**：白色
-- **关键函数**：青色 + ✓标记
-- **间接调用**：黄色 + 类型标注（函数指针/异步调用）
-- **调用行号**：灰色显示（用于代码定位）
+```bash
+# 列出所有可用场景
+python run_with_config.py
 
-**统计信息**：
-- 路径长度
-- 间接调用数量
-- 平均调用行号
-- 得分
-- 关键函数覆盖率
+# 运行指定场景
+python run_with_config.py --scenario mmc_auto
+python run_with_config.py --scenario mmc_manual
+```
+
+### 输出结果
+
+分析结果会保存为JSON格式：
+
+```json
+{
+  "success": true,
+  "path_count": 5,
+  "paths": [
+    {
+      "path": ["dw_mci_pltfm_probe", "dw_mci_probe", ..., "dw_mci_execute_tuning"],
+      "length": 25,
+      "indirect_count": 3,
+      "score": 0.85,
+      "avg_call_line": 156.3,
+      "matched_key_functions": ["mmc_attach_mmc", "mmc_execute_tuning"]
+    }
+  ]
+}
+```
+
+控制台也会显示实时进度和结果摘要。
 
 ---
 
 ## ⚙️ 配置说明
 
-### 1. 间接调用检测配置
+### 子图选择配置
 
-**文件**：`config/indirect_call_detection.yaml`
+```bash
+# 启用自动选择（推荐）
+--enable-subgraph-selection
 
-```yaml
-# 函数指针检测
-functions_need_llm_detection:
-  - mmc_execute_tuning      # 需要LLM检测的函数
+# 手动指定子图
+--enable-subgraph-selection --subgraph mmc
 
-# 异步调用检测
-async_call_detection:
-  keywords:                  # 识别异步函数的关键字
-    - schedule
-    - delayed_work
-    - queue_work
-
-  known_async_functions:     # 显式列出的异步函数
-    - mmc_schedule_delayed_work
+# 传统方式（不启用子图选择）
+--data-dir /data/.../data/mmc  # 直接指定子图路径
 ```
 
-### 2. Mock数据配置
+### LLM功能配置
 
-**文件**：`data/mock_indirect_calls.py`
+```bash
+# 间接调用检测（用于运行时分析delayed work等）
+--enable-llm-detection
 
-当图谱不完善时使用Mock数据作为Fallback：
+# 日志分析（使用LLM深度分析日志）
+--enable-llm-log-analysis
 
-```python
-MOCK_INDIRECT_CALLS = {
-    "mmc_execute_tuning": {
-        "ops.execute_tuning": ["dw_mci_execute_tuning"]
-    }
-}
+# 自定义LLM服务
+--llm-model gpt-4
+--llm-base-url http://your-server:8000
+```
 
-MOCK_ASYNC_ASSIGNED_TO = {
-    "detect": ["mmc_rescan"]
-}
+### Top-K配置
+
+```bash
+# 返回路径数量
+--k 5  # 默认值
+
+# 一般分析：--k 3（快速）
+# 详细分析：--k 5（平衡）
+# 深度分析：--k 10（全面）
 ```
 
 ---
 
-## 📖 使用示例
+## 📁 项目结构
 
-### 方式1：自动推断（从日志提取）
-
-```python
-from coordinator.master_coordinator import MasterCoordinator
-
-coordinator = MasterCoordinator(
-    data_dir="/path/to/kg/data",
-    enable_llm_detection=True
-)
-
-result = coordinator.process_top_k(
-    log_text="""
-    ALL phases bad!
-    mmc0: tuning execution failed: -1
-    mmc0: error -1 whilst initialising MMC card
-    """,
-    k=5  # 返回Top-5路径
-)
 ```
-
-### 方式2：手动指定（显式控制）
-
-```python
-result = coordinator.process_top_k_with_specific_functions(
-    log_text="...",
-    start_func='dw_mci_pltfm_probe',
-    end_func='dw_mci_execute_tuning',
-    intermediate_funcs=[
-        'mmc_attach_mmc',
-        'mmc_execute_tuning',
-        'dw_mci_hi3660_execute_tuning'
-    ],
-    k=5
-)
-```
-
-### 结果解析
-
-```python
-for path in result['paths']:
-    print(f"路径长度: {path['length']}")
-    print(f"得分: {path['score']}")
-    print(f"路径: {' -> '.join(path['path'])}")
-
-    # 关键函数覆盖率
-    total_keys = len(path['matched_key_functions']) + len(path['missed_key_functions'])
-    coverage = len(path['matched_key_functions']) / total_keys if total_keys > 0 else 0
-    print(f"关键函数覆盖率: {coverage:.0%}")
-
-    print(f"间接调用: {path['indirect_count']}")
+kg_based_bug_localization_agent/
+├── agents/                      # Agent模块
+│   ├── base_agent.py            # Agent基类
+│   ├── log_parser_agent.py      # 日志解析Agent
+│   ├── entity_locator_agent.py  # 实体定位Agent
+│   ├── chain_tracer_agent.py    # 调用链追踪Agent
+│   └── source_code_bridge_finder.py  # 源码桥接Agent
+├── coordinator/                 # 协调器
+│   └── master_coordinator.py    # 主协调器
+├── data/                        # 数据层
+│   ├── kg_interface.py          # 知识图谱接口
+│   └── mock_indirect_calls.py   # Mock数据（用于fallback）
+├── llm/                         # LLM模块
+│   ├── llm_client.py            # 统一LLM客户端
+│   ├── backends/                # LLM后端
+│   │   ├── base.py              # 后端基类
+│   │   ├── openai_backend.py    # OpenAI兼容后端
+│   │   └── local_backend.py     # 本地后端（占位）
+│   └── openai_client.py         # 旧版客户端（向后兼容）
+├── utils/                       # 工具模块
+│   ├── logger.py                # 日志工具
+│   ├── subgraph_selector.py     # 子图选择器
+│   ├── llm_indirect_call_detector.py  # LLM间接调用检测
+│   └── source_code_reader.py    # 源码读取工具
+├── config/                      # 配置
+│   ├── subgraph_metadata.py     # 子图元数据（30+子系统）
+│   └── bug_localization_config.example.yaml  # 配置文件模板
+├── examples/                    # 示例脚本
+│   └── run_mmc_case_topk.py     # MMC案例示例
+├── run_bug_localization.py      # 主入口脚本（命令行模式）
+├── run_with_config.py           # 主入口脚本（配置文件模式）
+├── test_*.py                    # 测试脚本
+├── verify_graph_structure.py   # 图谱结构验证工具
+├── USAGE.md                     # 详细使用文档
+└── README.md                    # 本文件
 ```
 
 ---
 
 ## 📦 依赖项
 
-主要依赖（见 `requirements.txt`）：
+### 必需依赖
 
-```
-openai>=1.0.0          # LLM API调用
-loguru>=0.7.0          # 日志记录
-pyyaml>=6.0            # 配置文件解析
-rich>=13.0.0           # 终端输出美化
+```txt
+neo4j>=5.0.0              # Neo4j图数据库驱动
+openai>=1.0.0             # OpenAI API客户端
+rich>=13.0.0              # 美化控制台输出
 ```
 
-**可选依赖**：
-- 如果不使用LLM功能，可以不安装`openai`包
-- 系统会自动检测并降级到纯图谱+Mock模式
+### 可选依赖
+
+```txt
+pyyaml>=6.0               # YAML配置文件支持（用于配置文件模式）
+```
+
+### Python版本
+
+- Python 3.8+
 
 ---
 
-## 🔮 未来计划
+## 🧪 测试
 
-### 短期计划
+### 运行单元测试
 
-#### 1. 完善知识图谱
-**目标**：消除Mock数据依赖
+```bash
+# 测试子图选择器
+python test_subgraph_selector.py
 
-**当前状态**：
-- 使用Mock数据补充图谱缺失的间接调用关系
-- ASSIGNED_TO关系不完整（函数指针和异步调用的字段→函数映射）
+# 测试集成功能
+python test_integrated_subgraph_selection.py
 
-**待完成**：
-- [ ] 获取完整的Linux内核知识图谱
-- [ ] 验证ASSIGNED_TO关系覆盖率
-- [ ] 逐步减少Mock数据使用
-- [ ] 建立图谱质量评估机制
+# 测试间接调用图谱
+python test_indirect_calls_graph.py
 
-#### 2. 子图定位模块
-**背景**：完整Linux内核图谱规模庞大，全图搜索效率低
-
-**待评估**：
-- [ ] 根据获取到的图谱规模，评估是否需要子图定位
-- [ ] 性能测试：全图BFS vs 子图BFS
-- [ ] 如果需要：基于错误码/子系统/文件路径缩小搜索范围
-
-**实现方式（如果需要）**：
-```
-LLM分析日志 → 确定子系统/模块 → 提取子图 → 局部Top-K搜索
+# 测试日志匹配
+python test_log_matching.py
 ```
 
-#### 3. 改进入口函数推断
-**当前方法**：规则化模式匹配（如`*_probe`、`*_init`）
+### 验证图谱结构
 
-**问题**：
-- 规则过于简单，容易误判
-- 不同子系统的入口模式不同
-- 缺少上下文分析
-
-**改进方向**：
-- [ ] **图谱辅助**：从图谱中查询函数调用深度，选择调用链顶层函数
-- [ ] **LLM分析**：结合日志上下文和代码结构，智能推断真实入口
-- [ ] **混合策略**：图谱提供候选 + LLM排序选择
-
-示例流程：
-```python
-# 步骤1: 图谱提供候选（基于调用深度、子系统）
-candidates = kg.find_entry_candidates(
-    subsystem="mmc",
-    error_func="dw_mci_execute_tuning",
-    depth_threshold=0  # 只选择顶层函数
-)
-# → [dw_mci_pltfm_probe, dw_mci_init, mmc_start_host, ...]
-
-# 步骤2: LLM排序（基于日志上下文）
-inferred_entry = llm.rank_entry_points(
-    candidates=candidates,
-    log_context=log_text,
-    call_graph_snippet=kg.get_subgraph(candidates)
-)
-# → dw_mci_pltfm_probe (LLM分析后的最佳入口)
-```
-
-### 中期计划
-
-#### 4. 扩展LLM调用场景
-
-**a) 断点连接增强**
-- [ ] 当图谱路径中断时，LLM分析源码找连接点
-- [ ] 实现细粒度源码分析（已有基础框架`SourceCodeBridgeFinder`，待完善）
-- [ ] 缓存LLM分析结果，避免重复调用
-
-**b) 多模态分析**
-- [ ] LLM分析配置文件（Kconfig、Makefile）辅助定位
-- [ ] 结合Git历史和issue记录
-- [ ] Patch分析：识别相关代码变更
-
-**c) 交互式修复建议**
-- [ ] LLM建议代码修复方案
-- [ ] 生成测试用例
-- [ ] 根据调用链生成调试脚本
-
-**d) 提示词优化**
-- [ ] Few-shot learning：提供典型案例
-- [ ] 上下文增强：传递更多图谱信息
-- [ ] 结果验证：LLM自我纠错机制
-
-#### 5. 性能优化
-
-- [ ] 图谱查询缓存
-- [ ] 并行路径搜索
-- [ ] 增量BFS（复用已搜索的部分路径）
-- [ ] 优先队列优化（更智能的剪枝策略）
-
-#### 6. 可视化工具
-
-- [ ] Web界面展示调用链
-- [ ] 交互式路径探索
-- [ ] 源码高亮显示
-- [ ] 路径对比视图
-
----
-
-## 📚 项目结构
-
-```
-kg_based_bug_localization_agent/
-├── agents/                          # Agent系统
-│   ├── base_agent.py               # Agent基类
-│   ├── chain_tracer_agent.py       # 调用链追踪（核心）
-│   ├── entity_locator_agent.py     # 实体定位
-│   ├── log_parser_agent.py         # 日志解析
-│   └── source_code_bridge_finder.py # 源码断点连接
-├── coordinator/                     # 协调器
-│   └── master_coordinator.py       # 主协调器（入口）
-├── data/                           # 数据层
-│   ├── kg_interface.py             # 知识图谱接口
-│   └── mock_indirect_calls.py      # Mock数据
-├── utils/                          # 工具类
-│   ├── llm_indirect_call_detector.py # LLM间接调用检测
-│   ├── source_code_reader.py       # 源码读取
-│   └── logger.py                   # 日志工具
-├── llm/                            # LLM客户端
-│   └── openai_client.py            # OpenAI API封装
-├── config/                         # 配置
-│   ├── settings.py                 # 系统配置
-│   └── indirect_call_detection.yaml # 间接调用检测配置
-├── examples/                       # 使用示例
-│   └── run_mmc_case_topk.py        # MMC案例（Top-K版本）
-├── output/                         # 输出目录
-├── requirements.txt                # 依赖项
-└── README.md                       # 本文件
+```bash
+python verify_graph_structure.py /data/xuao/code_kg_search/linux_test/data/mmc
 ```
 
 ---
 
-## 🤝 贡献指南
+## 📚 文档
 
-欢迎贡献！主要方向：
+- [USAGE.md](USAGE.md) - 详细使用指南（参数说明、最佳实践、故障排查）
+- [TOP_K_FEATURE.md](TOP_K_FEATURE.md) - Top-K路径搜索特性文档
+- [INTEGRATION_SUMMARY.md](INTEGRATION_SUMMARY.md) - 集成总结
+- [DEPLOYMENT.md](DEPLOYMENT.md) - 部署指南
 
-1. **图谱完善**：提供更完整的Linux内核知识图谱
-2. **LLM优化**：改进prompt工程，提升检测准确率
-3. **性能优化**：大规模图谱搜索加速
-4. **新特性**：子图定位、可视化、多模态分析等
+---
+
+## 🎯 使用场景
+
+### 场景1：快速分析一个错误
+
+```bash
+python run_bug_localization.py \
+    --data-dir /data/xuao/code_kg_search/linux_test/data \
+    --log "mmc0: tuning execution failed: -1" \
+    --enable-subgraph-selection \
+    --k 3
+```
+
+### 场景2：批量分析多个日志
+
+```bash
+#!/bin/bash
+for log in logs/*.log; do
+    python run_bug_localization.py \
+        --data-dir /data/xuao/code_kg_search/linux_test/data \
+        --log-file "$log" \
+        --enable-subgraph-selection \
+        --output "output/$(basename $log .log).json" \
+        --k 5
+done
+```
+
+### 场景3：深度分析（启用所有LLM功能）
+
+```bash
+python run_bug_localization.py \
+    --data-dir /data/xuao/code_kg_search/linux_test/data \
+    --log "mmc0: tuning execution failed: -1" \
+    --enable-subgraph-selection \
+    --enable-llm-detection \
+    --enable-llm-log-analysis \
+    --k 10
+```
+
+---
+
+## 🤝 贡献
+
+欢迎提交Issue和Pull Request！
 
 ---
 
 ## 📄 许可证
 
-[待定]
+MIT License
 
 ---
 
 ## 📧 联系方式
 
-如有问题或建议，请联系项目维护者。
+如有问题或建议，请通过Issue与我们联系。
 
 ---
 
-**最后更新**：2025-11-17
+**最后更新**：2025-11-24
