@@ -32,10 +32,11 @@ class MasterCoordinator:
         # 创建知识图谱接口
         self.kg = KnowledgeGraphInterface(data_dir, enable_llm_detection=enable_llm_detection)
 
-        # 如果启用LLM检测，执行预处理
-        if enable_llm_detection:
-            logger.info("LLM间接调用检测已启用，开始预处理...")
-            self.kg.preprocess_llm_indirect_calls()
+        # 注意：不再需要LLM预处理，因为图谱中已经包含了间接调用结构（CALLS + ASSIGNED_TO）
+        # LLM只在运行时用于分析delayed work的间接调用（_detect_async_call）
+        # if enable_llm_detection:
+        #     logger.info("LLM间接调用检测已启用，开始预处理...")
+        #     self.kg.preprocess_llm_indirect_calls()
 
         # 创建各个Agent
         self.log_parser = LogParserAgent(enable_llm=enable_llm_log_analysis)

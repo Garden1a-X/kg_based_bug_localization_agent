@@ -616,9 +616,8 @@ class KnowledgeGraphInterface:
         """
         查找函数的间接调用目标
 
-        优先级：
-        1. LLM检测缓存（如果启用）
-        2. Mock数据（fallback）
+        注意：此方法已废弃。间接调用现在直接从图谱的 CALLS 关系获取（在 _get_callees_with_lines 中）。
+        保留此方法仅用于向后兼容，但应该使用新的 find_top_k_call_paths_with_indirect 方法。
 
         Args:
             func_name: 函数名
@@ -626,14 +625,14 @@ class KnowledgeGraphInterface:
         Returns:
             间接调用列表，每项为 (目标函数名, 桥接信息)
         """
-        # 1. 优先使用LLM检测缓存
-        if self.enable_llm_detection and func_name in self.llm_indirect_call_cache:
-            llm_callees = self.llm_indirect_call_cache[func_name]
-            if llm_callees:
-                logger.debug(f"函数 {func_name} 使用LLM检测结果: {len(llm_callees)} 个间接调用")
-                return llm_callees
+        # 不再使用LLM预处理缓存，因为图谱中已经包含间接调用关系
+        # if self.enable_llm_detection and func_name in self.llm_indirect_call_cache:
+        #     llm_callees = self.llm_indirect_call_cache[func_name]
+        #     if llm_callees:
+        #         logger.debug(f"函数 {func_name} 使用LLM检测结果: {len(llm_callees)} 个间接调用")
+        #         return llm_callees
 
-        # 2. fallback到Mock数据
+        # fallback到Mock数据（仅用于测试/兼容）
         mock_callees = get_mock_indirect_callees(func_name)
         if mock_callees:
             logger.debug(f"函数 {func_name} 使用Mock数据: {len(mock_callees)} 个间接调用")
