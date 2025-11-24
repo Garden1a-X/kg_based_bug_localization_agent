@@ -2,12 +2,15 @@
 主协调器
 协调所有Agent完成Bug定位任务
 """
-from typing import Dict, Optional
+from typing import Dict, Optional, List
+from pathlib import Path
 from data.kg_interface import KnowledgeGraphInterface
 from agents.log_parser_agent import LogParserAgent
 from agents.entity_locator_agent import EntityLocatorAgent
 from agents.chain_tracer_agent import CallChainTracerAgent
 from llm import LLMClient
+from utils.subgraph_selector import SubgraphSelector
+from config.subgraph_metadata import SUBGRAPH_METADATA
 from utils.logger import logger, print_header, print_step, print_success, print_error, print_panel
 from rich.console import Console
 from rich.table import Table
@@ -24,6 +27,7 @@ class MasterCoordinator:
         llm_client: Optional[LLMClient] = None,
         enable_llm_detection: bool = False,
         enable_llm_log_analysis: bool = False,
+        enable_subgraph_selection: bool = False,
         llm_config: Optional[Dict] = None
     ):
         """
@@ -34,13 +38,18 @@ class MasterCoordinator:
             llm_client: LLM客户端（可选，如果不提供则根据配置自动创建）
             enable_llm_detection: 是否启用LLM辅助间接调用检测（运行时）
             enable_llm_log_analysis: 是否启用LLM辅助日志分析
+            enable_subgraph_selection: 是否启用子图自动选择
             llm_config: LLM配置（如果需要自动创建LLM客户端）
                 例如: {'backend': 'openai', 'model': 'gpt-4o-mini', 'base_url': '...'}
         """
         logger.info("初始化主协调器...")
 
+        # 保存配置
+        self.base_data_dir = data_dir
+        self.enable_subgraph_selection = enable_subgraph_selection
+
         # 如果需要LLM但没有提供客户端，则创建统一的LLM客户端
-        if (enable_llm_detection or enable_llm_log_analysis) and llm_client is None:
+        if (enable_llm_detection or enable_llm_log_analysis or enable_subgraph_selection) and llm_client is None:
             if llm_config is None:
                 # 使用默认配置
                 llm_config = {
@@ -61,7 +70,18 @@ class MasterCoordinator:
 
         self.llm_client = llm_client
 
+        # 如果启用子图选择，创建SubgraphSelector
+        self.subgraph_selector = None
+        if enable_subgraph_selection:
+            self.subgraph_selector = SubgraphSelector(
+                llm_client=llm_client,
+                base_data_dir=data_dir,
+                subgraph_metadata=SUBGRAPH_METADATA
+            )
+            logger.info(f"子图选择器已启用，发现 {len(self.subgraph_selector.available_subgraphs)} 个子图")
+
         # 创建知识图谱接口（传入LLM客户端）
+        # 注意：如果启用子图选择，这里可能会在process时重新初始化
         self.kg = KnowledgeGraphInterface(
             data_dir,
             enable_llm_detection=enable_llm_detection,
@@ -79,31 +99,77 @@ class MasterCoordinator:
         self.entity_locator = EntityLocatorAgent(self.kg)
         self.chain_tracer = CallChainTracerAgent(self.kg, llm_client)
 
+        # 保存enable_llm_detection以便重新初始化时使用
+        self.enable_llm_detection = enable_llm_detection
+
         logger.success("协调器初始化完成")
     
-    def process(self, log_text: str) -> Dict:
+    def process(self, log_text: str, subgraph_override: Optional[str] = None) -> Dict:
         """
         处理错误日志，进行bug定位
-        
+
         Args:
             log_text: 错误日志文本
-            
+            subgraph_override: 手动指定子图（可选），如果提供则跳过自动选择
+
         Returns:
             分析结果
         """
         print_header("Bug定位分析流程")
-        
+
+        # 第0步（可选）：子图选择
+        selected_subgraph = None
+        if self.enable_subgraph_selection and self.subgraph_selector:
+            if subgraph_override:
+                # 手动指定子图
+                selected_subgraph = subgraph_override
+                logger.info(f"使用手动指定的子图: {selected_subgraph}")
+            else:
+                # 自动选择子图
+                print_step(1, 5, "选择相关子图")
+                selected_subgraphs = self.subgraph_selector.select_by_log(log_text, top_k=1)
+
+                if selected_subgraphs:
+                    selected_subgraph = selected_subgraphs[0]
+                    logger.info(f"LLM选择的子图: {selected_subgraph}")
+
+                    # 获取子图路径
+                    subgraph_path = self.subgraph_selector.get_subgraph_path(selected_subgraph)
+                    if subgraph_path:
+                        logger.info(f"使用子图数据: {subgraph_path}")
+
+                        # 重新初始化知识图谱接口，使用选中的子图
+                        self.kg = KnowledgeGraphInterface(
+                            str(subgraph_path),
+                            enable_llm_detection=self.enable_llm_detection,
+                            llm_client=self.llm_client
+                        )
+
+                        # 重新初始化依赖KG的Agent
+                        self.entity_locator = EntityLocatorAgent(self.kg)
+                        self.chain_tracer = CallChainTracerAgent(self.kg, self.llm_client)
+
+                        print_success(f"已切换到子图: {selected_subgraph}")
+                    else:
+                        logger.warning(f"子图路径不存在: {selected_subgraph}，使用默认图谱")
+                else:
+                    logger.warning("未选择到子图，使用默认图谱")
+
+        # 调整步骤编号（如果启用了子图选择）
+        step_offset = 1 if (self.enable_subgraph_selection and not subgraph_override) else 0
+        total_steps = 5 if step_offset else 4
+
         # 第1步：日志解析
-        print_step(1, 4, "解析错误日志")
+        print_step(1 + step_offset, total_steps, "解析错误日志")
         # 检测是否是 MMC 日志
         if 'mmc' in log_text.lower() or 'tuning' in log_text.lower():
             parsed_log = self.log_parser.parse_mmc_log(log_text)
         else:
             parsed_log = self.log_parser.execute(log_text)
         self._display_parsed_log(parsed_log)
-        
+
         # 第2步：实体定位
-        print_step(2, 4, "在图谱中定位实体")
+        print_step(2 + step_offset, total_steps, "在图谱中定位实体")
         entities = self.entity_locator.execute(parsed_log)
         self._display_entities(entities)
         
@@ -118,15 +184,15 @@ class MasterCoordinator:
             }
         
         # 第3步：调用链追踪
-        print_step(3, 4, "追踪调用链")
+        print_step(3 + step_offset, total_steps, "追踪调用链")
         chain_result = self.chain_tracer.execute(
             entities['start_entity'],
             entities['end_entity']
         )
         self._display_chain(chain_result)
-        
+
         # 第4步：生成报告
-        print_step(4, 4, "生成分析报告")
+        print_step(4 + step_offset, total_steps, "生成分析报告")
         report = self._generate_report(parsed_log, entities, chain_result)
         
         print_success("分析完成！")
