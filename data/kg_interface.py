@@ -1349,9 +1349,67 @@ class KnowledgeGraphInterface:
 
         return found_paths[:k]
 
+    def query_assigned_to_by_field_name(self, field_name: str) -> List[str]:
+        """
+        根据字段名查询 ASSIGNED_TO 关系，返回所有赋值目标函数
+
+        处理流程：
+        1. 遍历 entity_by_id，找到所有名为 field_name 的 FIELD 实体
+        2. 查询这些 FIELD 的 ASSIGNED_TO 关系
+        3. 返回所有目标函数名列表
+
+        Args:
+            field_name: 字段名（如 "execute_tuning"）
+
+        Returns:
+            函数名列表（可能为空）
+        """
+        # 1. 找到所有名为 field_name 的 FIELD 实体
+        field_ids = []
+
+        for entity_id, entity in self.entity_by_id.items():
+            entity_type = entity.get('type')
+            entity_name = entity.get('name')
+
+            if entity_type == 'FIELD' and entity_name == field_name:
+                field_ids.append(entity_id)
+
+        if not field_ids:
+            logger.debug(f"未找到名为 {field_name} 的 FIELD 实体")
+            return []
+
+        logger.debug(f"找到 {len(field_ids)} 个名为 {field_name} 的 FIELD 实体")
+
+        # 2. 查询 ASSIGNED_TO 关系
+        field_id_set = set(field_ids)
+        target_function_names = []
+
+        assigned_to_relations = self.relations.get('ASSIGNED_TO', [])
+
+        for rel in assigned_to_relations:
+            head_id = rel.get('head')
+            tail_id = rel.get('tail')
+
+            # ASSIGNED_TO: head=FIELD_ID, tail=FUNCTION_ID
+            if head_id in field_id_set:
+                # 获取目标函数名
+                target_entity = self.entity_by_id.get(tail_id)
+                if target_entity and target_entity.get('type') == 'FUNCTION':
+                    target_name = target_entity.get('name')
+                    if target_name:
+                        target_function_names.append(target_name)
+                        logger.debug(f"  匹配到 ASSIGNED_TO: {field_name} -> {target_name}")
+
+        if target_function_names:
+            logger.info(f"✓ 字段 '{field_name}' 的 ASSIGNED_TO 目标: {target_function_names}")
+        else:
+            logger.debug(f"未找到字段 '{field_name}' 的 ASSIGNED_TO 关系")
+
+        return list(set(target_function_names))  # 去重
+
     def _get_callees_with_lines(self, func_id: str, error_line: Optional[int] = None) -> List[Tuple[str, Optional[int]]]:
         """
-        获取函数的被调用者及其调用行号
+        获取函数的被调用者及其调用行号（支持间接调用）
 
         Args:
             func_id: 函数ID
@@ -1361,31 +1419,75 @@ class KnowledgeGraphInterface:
         Returns:
             [(callee_name, call_line), ...] 的列表
             call_line用于后续的路径排序，优先选择调用发生得更早的路径
+
+        注意：
+            - 对于直接调用：返回被调用函数名
+            - 对于间接调用（函数指针）：查询 ASSIGNED_TO 关系，返回所有候选函数
         """
         result = []
 
         # 获取等价ID
         equivalent_ids = self.get_equivalent_ids(func_id)
 
-        for equiv_id in equivalent_ids:
-            if equiv_id not in self.call_graph_with_lines:
+        # 遍历 CALLS 关系（而不是预构建的 call_graph_with_lines）
+        # 因为我们需要检查 call_type 和 target_type
+        if 'CALLS' not in self.relations:
+            return []
+
+        for rel in self.relations['CALLS']:
+            head_id = rel.get('head')
+            tail_id = rel.get('tail')
+
+            # 检查是否是当前函数的调用
+            if head_id not in equivalent_ids:
                 continue
 
-            for call_info in self.call_graph_with_lines[equiv_id]:
-                callee_id = call_info['callee_id']
-                call_line = call_info['call_line']
+            call_line = rel.get('call_line')
+            call_type = rel.get('call_type', 'direct')  # 默认是直接调用
+            target_type = rel.get('target_type', 'FUNCTION')  # 默认目标是函数
 
-                # 注意：不再使用error_line进行剪枝！
-                # 原因：调用链是跨函数的（如 D:50 -> B:10 -> A）
-                # D的第50行调用B，B的第10行调用A，这两个行号不能比较
-                # call_line仅用于记录调用发生的位置，用于后续路径排序
-
-                # 标准化callee_id并查找名字
-                callee_id_normalized = self.normalize_id(callee_id)
+            # ========== 直接调用 ==========
+            if call_type == 'direct' or target_type == 'FUNCTION':
+                # 标准化tail_id并查找名字
+                callee_id_normalized = self.normalize_id(tail_id)
                 callee_entity = self.entity_by_id.get(callee_id_normalized)
 
                 if callee_entity and 'name' in callee_entity:
                     result.append((callee_entity['name'], call_line))
+
+            # ========== 间接调用（函数指针） ==========
+            elif call_type == 'indirect' and target_type == 'FIELD':
+                # tail 指向 FIELD 实体
+                field_entity = self.entity_by_id.get(tail_id)
+
+                if not field_entity:
+                    logger.warning(f"间接调用的 FIELD 实体不存在: {tail_id}")
+                    continue
+
+                # 获取字段名：优先使用 field_path 的最后一个元素
+                field_path = rel.get('field_path', [])
+                if field_path:
+                    field_name = field_path[-1]  # 使用路径的最后一个元素
+                else:
+                    field_name = field_entity.get('name')  # fallback 到实体名称
+
+                if not field_name:
+                    logger.warning(f"无法获取字段名: field_entity={field_entity}")
+                    continue
+
+                logger.debug(f"检测到间接调用: field_name={field_name}, field_path={field_path}")
+
+                # 查询 ASSIGNED_TO 关系
+                candidate_functions = self.query_assigned_to_by_field_name(field_name)
+
+                if candidate_functions:
+                    # 将所有候选函数加入结果（过度近似策略）
+                    for candidate_name in candidate_functions:
+                        result.append((candidate_name, call_line))
+                else:
+                    # 如果图谱中没有找到，fallback 到 Mock 数据
+                    logger.info(f"图谱中未找到字段 '{field_name}' 的 ASSIGNED_TO，尝试 Mock 数据")
+                    # TODO: 这里可以添加 Mock fallback 逻辑
 
         return result
 

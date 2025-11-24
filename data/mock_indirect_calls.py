@@ -6,49 +6,64 @@ TODO: 临时模块，等知识图谱修复 ASSIGNED_TO 关系后删除
 包括：
 1. 异步调用（work_struct）
 2. 函数指针（ops 表）
+
+注意：
+- 自 2024年 起，图谱已支持 CALLS 关系的 call_type="indirect" 标记
+- 新的图谱结构中，间接调用的 tail 指向 FIELD 实体
+- 通过查询 ASSIGNED_TO 关系即可获取目标函数
+- 因此，MOCK_ASYNC_CALLS 和 MOCK_FUNCTION_POINTER_CALLS 已被注释掉
+- 仅保留 MOCK_ASYNC_ASSIGNED_TO 作为 fallback
 """
 
 # ============================================================
 # TODO: 等图谱修复后删除这个文件
 # ============================================================
 
-# 异步调用关系（工作队列）
-# 格式：{(caller_func, callee_func): bridge_info}
-MOCK_ASYNC_CALLS = {
-    # [位置8] mmc_schedule_delayed_work 异步调度 mmc_rescan
-    # 这是16节点完整路径中的真实异步调用断点
-    ("mmc_schedule_delayed_work", "mmc_rescan"): {
-        "bridge_type": "async",
-        "bridge_entity": "work_struct.func",
-        "init_func": "INIT_DELAYED_WORK",
-        "description": "mmc_schedule_delayed_work 通过 work_struct 异步调度 mmc_rescan"
-    },
-    # 可以添加更多已知的异步调用关系
-}
+# ============================================================
+# 已注释：异步调用关系（已由图谱的 CALLS + ASSIGNED_TO 代替）
+# ============================================================
+# # 异步调用关系（工作队列）
+# # 格式：{(caller_func, callee_func): bridge_info}
+# MOCK_ASYNC_CALLS = {
+#     # [位置8] mmc_schedule_delayed_work 异步调度 mmc_rescan
+#     # 这是16节点完整路径中的真实异步调用断点
+#     ("mmc_schedule_delayed_work", "mmc_rescan"): {
+#         "bridge_type": "async",
+#         "bridge_entity": "work_struct.func",
+#         "init_func": "INIT_DELAYED_WORK",
+#         "description": "mmc_schedule_delayed_work 通过 work_struct 异步调度 mmc_rescan"
+#     },
+#     # 可以添加更多已知的异步调用关系
+# }
+MOCK_ASYNC_CALLS = {}  # 已注释，保留空字典用于兼容性
 
-# 函数指针调用关系（ops 表）
-# 格式：{(caller_func, callee_func): bridge_info}
-MOCK_FUNCTION_POINTER_CALLS = {
-    # [位置14] mmc_execute_tuning → dw_mci_execute_tuning（函数指针/ops调用）
-    ("mmc_execute_tuning", "dw_mci_execute_tuning"): {
-        "bridge_type": "function_pointer",
-        "bridge_entity": "mmc_host_ops.execute_tuning",
-        "struct_name": "dw_mci_ops",
-        "field_name": "execute_tuning",
-        "description": "host->ops->execute_tuning() 指向 dw_mci_execute_tuning"
-    },
-
-    # [位置15] dw_mci_execute_tuning → dw_mci_hi3660_execute_tuning（函数指针/平台特定ops）
-    ("dw_mci_execute_tuning", "dw_mci_hi3660_execute_tuning"): {
-        "bridge_type": "function_pointer",
-        "bridge_entity": "dw_mci_drv_data.execute_tuning",
-        "struct_name": "dw_mci_drv_data",
-        "field_name": "execute_tuning",
-        "description": "平台特定的 execute_tuning 实现"
-    },
-
-    # 可以添加更多已知的函数指针关系
-}
+# ============================================================
+# 已注释：函数指针调用关系（已由图谱的 CALLS + ASSIGNED_TO 代替）
+# ============================================================
+# # 函数指针调用关系（ops 表）
+# # 格式：{(caller_func, callee_func): bridge_info}
+# MOCK_FUNCTION_POINTER_CALLS = {
+#     # [位置14] mmc_execute_tuning → dw_mci_execute_tuning（函数指针/ops调用）
+#     ("mmc_execute_tuning", "dw_mci_execute_tuning"): {
+#         "bridge_type": "function_pointer",
+#         "bridge_entity": "mmc_host_ops.execute_tuning",
+#         "struct_name": "dw_mci_ops",
+#         "field_name": "execute_tuning",
+#         "description": "host->ops->execute_tuning() 指向 dw_mci_execute_tuning"
+#     },
+#
+#     # [位置15] dw_mci_execute_tuning → dw_mci_hi3660_execute_tuning（函数指针/平台特定ops）
+#     ("dw_mci_execute_tuning", "dw_mci_hi3660_execute_tuning"): {
+#         "bridge_type": "function_pointer",
+#         "bridge_entity": "dw_mci_drv_data.execute_tuning",
+#         "struct_name": "dw_mci_drv_data",
+#         "field_name": "execute_tuning",
+#         "description": "平台特定的 execute_tuning 实现"
+#     },
+#
+#     # 可以添加更多已知的函数指针关系
+# }
+MOCK_FUNCTION_POINTER_CALLS = {}  # 已注释，保留空字典用于兼容性
 
 # 异步调用 ASSIGNED_TO 关系（字段赋值）
 # 格式：{field_name: [function_names]}
