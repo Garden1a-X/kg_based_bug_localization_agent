@@ -697,7 +697,7 @@ class KnowledgeGraphInterface:
         # 5. 如果还是没有，尝试 Mock 数据
         async_targets = []
         if field_name:
-            logger.info(f"使用字段名查询 ASSIGNED_TO: {field_name}")
+            logger.debug(f"使用字段名查询 ASSIGNED_TO: {field_name}")
             async_targets = self._query_assigned_to_for_async(field_name)
 
         # 6. 如果仍然没有结果，尝试 Mock 数据的直接映射
@@ -924,9 +924,9 @@ class KnowledgeGraphInterface:
                 logger.debug(f"  匹配到 ASSIGNED_TO: {head_id} -> {tail_id}")
 
         if not target_function_ids:
-            logger.info(f"未在图谱中找到字段 {field_name} 的 ASSIGNED_TO 关系")
+            logger.debug(f"未在图谱中找到字段 {field_name} 的 ASSIGNED_TO 关系")
         else:
-            logger.info(f"在图谱中找到 {len(target_function_ids)} 个赋值目标")
+            logger.debug(f"在图谱中找到 {len(target_function_ids)} 个赋值目标")
 
         # 4. 获取目标函数名
         targets = []
@@ -946,7 +946,7 @@ class KnowledgeGraphInterface:
 
         if targets:
             target_names = [t[0] for t in targets]
-            logger.info(f"✓ 从图谱找到字段 '{field_name}' 的赋值目标: {target_names}")
+            logger.debug(f"✓ 从图谱找到字段 '{field_name}' 的赋值目标: {target_names}")
 
         # 5. 补充 Mock 数据（合并模式）
         # 即使图谱有数据，也检查mock，以便补充图谱中缺失的关系
@@ -1496,7 +1496,7 @@ class KnowledgeGraphInterface:
                         logger.debug(f"  匹配到 ASSIGNED_TO: {field_name} -> {target_name}")
 
         if target_function_names:
-            logger.info(f"✓ 字段 '{field_name}' 的 ASSIGNED_TO 目标: {target_function_names}")
+            logger.debug(f"✓ 字段 '{field_name}' 的 ASSIGNED_TO 目标: {target_function_names}")
         else:
             logger.debug(f"未找到字段 '{field_name}' 的 ASSIGNED_TO 关系")
 
@@ -1581,7 +1581,7 @@ class KnowledgeGraphInterface:
                         result.append((candidate_name, call_line))
                 else:
                     # 如果图谱中没有找到，fallback 到 Mock 数据
-                    logger.info(f"图谱中未找到字段 '{field_name}' 的 ASSIGNED_TO，尝试 Mock 数据")
+                    logger.debug(f"图谱中未找到字段 '{field_name}' 的 ASSIGNED_TO，尝试 Mock 数据")
                     # TODO: 这里可以添加 Mock fallback 逻辑
 
         return result
