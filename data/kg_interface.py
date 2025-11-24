@@ -1552,7 +1552,10 @@ class KnowledgeGraphInterface:
             elif call_type == 'indirect' and target_type == 'FIELD':
                 # 如果不允许间接调用，跳过
                 if not allow_indirect:
-                    logger.debug(f"跳过间接调用（allow_indirect=False）: {field_path if 'field_path' in rel else 'unknown'}")
+                    # 提前获取 field_path 用于日志
+                    _field_path = rel.get('field_path', [])
+                    _field_name = _field_path[-1] if _field_path else 'unknown'
+                    logger.debug(f"跳过间接调用（allow_indirect=False）: {_field_name}")
                     continue
 
                 # tail 指向 FIELD 实体
