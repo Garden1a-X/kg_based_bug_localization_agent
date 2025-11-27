@@ -5,7 +5,7 @@
 import json
 from typing import Optional, Dict, Any, List
 from loguru import logger
-from .backends import OpenAIBackend, LocalServerBackend, BaseLLMBackend
+from .backends import OpenAIBackend, LocalServerBackend, OllamaBackend, BaseLLMBackend
 
 
 class LLMClient:
@@ -18,6 +18,10 @@ class LLMClient:
         # OpenAI API / 兼容服务
         client = LLMClient(backend='openai', model='gpt-4o-mini',
                           base_url='http://10.12.208.86:8502')
+
+        # Ollama 本地部署
+        client = LLMClient(backend='ollama', host='http://10.78.108.45:11434',
+                          model='qwen3:4b-instruct-2507-fp16')
 
         # 本地服务器（未来）
         client = LLMClient(backend='local', server_url='http://localhost:8000')
@@ -35,10 +39,11 @@ class LLMClient:
         初始化 LLM 客户端
 
         Args:
-            backend: 后端类型 ('openai', 'local', 等)
+            backend: 后端类型 ('openai', 'local', 'ollama', 等)
             **backend_config: 后端特定的配置参数
                 - OpenAI: api_key, base_url, model
                 - Local: server_url, model
+                - Ollama: host, model
         """
         self.backend_type = backend
         self.backend: Optional[BaseLLMBackend] = None
@@ -48,6 +53,8 @@ class LLMClient:
             self.backend = OpenAIBackend(**backend_config)
         elif backend == 'local':
             self.backend = LocalServerBackend(**backend_config)
+        elif backend == 'ollama':
+            self.backend = OllamaBackend(**backend_config)
         else:
             raise ValueError(f"不支持的后端类型: {backend}")
 

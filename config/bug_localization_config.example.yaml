@@ -23,10 +23,29 @@ llm:
   log_analysis:
     enabled: false
 
-  # LLM服务配置
+  # LLM后端配置（支持多种后端）
+  # 后端类型: 'openai'（OpenAI-compatible API）或 'ollama'（本地Ollama）
+  backend: "openai"
+
+  # ========== OpenAI-compatible 配置 ==========
+  # 适用于：原始OpenAI API、vLLM、华为内部OpenAI-compatible服务等
   model: "gpt-4o-mini"
   base_url: "http://10.12.208.86:8502"
   api_key: ""  # 留空使用默认值
+
+  # ========== 华为内部OpenAI-compatible配置示例 ==========
+  # 取消注释以下配置以使用华为内部模型：
+  # backend: "openai"
+  # base_url: "http://openai.md.huawei.com/"
+  # api_key: "your_huawei_api_key"  # 从华为内部获取
+  # model: "DS-V3-0324"  # 可选: DS-V3-0324, DS-R1-05xx, gpt-oss-120b, qwen3-coder-480b
+
+  # ========== Ollama本地部署配置示例 ==========
+  # 取消注释以下配置以使用Ollama：
+  # backend: "ollama"
+  # host: "http://10.78.108.45:11434"
+  # model: "qwen3:4b-instruct-2507-fp16"
+  # timeout: 180  # 可选，超时时间（秒）
 
 # 输出配置
 output:

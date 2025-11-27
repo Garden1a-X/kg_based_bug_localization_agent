@@ -50,7 +50,8 @@ python run_bug_localization.py \
 
 ### 4. 统一LLM客户端架构
 
-- **多后端支持**：支持OpenAI API、vLLM等OpenAI兼容服务
+- **多后端支持**：支持OpenAI API、Ollama本地部署、vLLM等OpenAI兼容服务
+- **灵活切换**：通过配置即可在不同LLM后端间切换（无需修改代码）
 - **专用方法**：针对不同场景的专用接口（日志分析、代码关系分析、参数提取等）
 - **易于扩展**：基于策略模式，可轻松添加新的LLM后端
 
@@ -136,17 +137,61 @@ pip install -r requirements.txt
 
 ### 3. 配置LLM服务
 
-系统支持OpenAI API和兼容OpenAI的本地服务（如vLLM）：
+系统支持多种LLM后端，可通过配置灵活切换：
+
+#### 选项1：OpenAI-compatible API（默认）
 
 ```bash
-# 使用默认配置（已内置）
+# 使用默认配置（vLLM服务）
 # 默认：http://10.12.208.86:8502，模型：gpt-4o-mini
+python run_bug_localization.py ...
 
-# 或自定义LLM服务
+# 或自定义OpenAI-compatible服务
 python run_bug_localization.py \
     --llm-base-url http://your-server:8000 \
     --llm-model your-model-name \
     ...
+```
+
+#### 选项2：Ollama本地部署（推荐用于华为内网）
+
+```bash
+# 方式1：通过命令行参数（需修改run_bug_localization.py支持）
+# 目前请使用配置文件模式或示例脚本
+
+# 方式2：配置文件模式（推荐）
+# 编辑 config/bug_localization_config.yaml:
+llm:
+  backend: "ollama"
+  host: "http://10.78.108.45:11434"
+  model: "qwen3:4b-instruct-2507-fp16"
+
+# 然后运行
+python run_with_config.py --scenario mmc_auto
+```
+
+#### 选项3：华为内部OpenAI-compatible服务
+
+```bash
+# 编辑 config/bug_localization_config.yaml:
+llm:
+  backend: "openai"
+  base_url: "http://openai.md.huawei.com/"
+  api_key: "your_huawei_api_key"
+  model: "DS-V3-0324"  # 或 DS-R1-05xx, gpt-oss-120b, qwen3-coder-480b
+
+# 然后运行
+python run_with_config.py --scenario mmc_auto
+```
+
+#### 测试LLM连接
+
+```bash
+# 测试Ollama连接
+python test_ollama_connection.py
+
+# 查看支持的配置
+cat config/bug_localization_config.example.yaml
 ```
 
 ### 4. 运行第一个分析
@@ -271,8 +316,19 @@ llm:
     enabled: true
   log_analysis:
     enabled: false
+
+  # LLM后端选择（支持 'openai' 或 'ollama'）
+  backend: "openai"
+
+  # OpenAI-compatible配置
   model: "gpt-4o-mini"
   base_url: "http://10.12.208.86:8502"
+  api_key: ""
+
+  # Ollama配置（如需使用，将backend改为"ollama"并取消注释）
+  # backend: "ollama"
+  # host: "http://10.78.108.45:11434"
+  # model: "qwen3:4b-instruct-2507-fp16"
 
 output:
   directory: "output"
@@ -383,6 +439,7 @@ kg_based_bug_localization_agent/
 │   ├── backends/                # LLM后端
 │   │   ├── base.py              # 后端基类
 │   │   ├── openai_backend.py    # OpenAI兼容后端
+│   │   ├── ollama_backend.py    # Ollama本地部署后端
 │   │   └── local_backend.py     # 本地后端（占位）
 │   └── openai_client.py         # 旧版客户端（向后兼容）
 ├── utils/                       # 工具模块
@@ -398,6 +455,7 @@ kg_based_bug_localization_agent/
 ├── run_bug_localization.py      # 主入口脚本（命令行模式）
 ├── run_with_config.py           # 主入口脚本（配置文件模式）
 ├── test_*.py                    # 测试脚本
+├── test_ollama_connection.py   # Ollama连通性测试
 ├── verify_graph_structure.py   # 图谱结构验证工具
 ├── USAGE.md                     # 详细使用文档
 └── README.md                    # 本文件
@@ -411,7 +469,8 @@ kg_based_bug_localization_agent/
 
 ```txt
 neo4j>=5.0.0              # Neo4j图数据库驱动
-openai>=1.0.0             # OpenAI API客户端
+openai>=1.0.0             # OpenAI API客户端（用于OpenAI-compatible后端）
+requests>=2.28.0          # HTTP请求库（用于Ollama后端）
 rich>=13.0.0              # 美化控制台输出
 ```
 
@@ -420,6 +479,11 @@ rich>=13.0.0              # 美化控制台输出
 ```txt
 pyyaml>=6.0               # YAML配置文件支持（用于配置文件模式）
 ```
+
+### LLM后端依赖说明
+
+- **OpenAI-compatible后端**：需要 `openai` 库（适用于OpenAI API、vLLM、华为内部服务等）
+- **Ollama后端**：需要 `requests` 库（HTTP直接通信）
 
 ### Python版本
 
