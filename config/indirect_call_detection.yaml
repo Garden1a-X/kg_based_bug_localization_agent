@@ -24,9 +24,24 @@ async_call_detection:
     - queue_work
     - schedule_work
     - init_work
+    - tasklet              # tasklet机制（初始化和调度）
+    - queue_work_on        # 指定CPU的工作队列调度
+    - queue_work_affinity  # CPU亲和性工作队列调度
+    - INIT_WORK            # 工作队列初始化宏
+    - INIT_DELAYED_WORK    # 延迟工作队列初始化宏
 
   # 可选：显式列出已知异步函数
   # 即使不匹配关键字，这些函数也会被识别为异步函数
   known_async_functions:
+    # workqueue方式
     - mmc_schedule_delayed_work
     - queue_delayed_work
+    - schedule_delayed_work
+    - schedule_work
+    - queue_work
+    - queue_work_on
+    - queue_work_affinity
+
+    # tasklet方式
+    - tasklet_init
+    - tasklet_schedule
