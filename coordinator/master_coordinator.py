@@ -1,9 +1,9 @@
 """
 主协调器
-协调所有Agent完成bug定位任务
+协调所有Agent完成Bug定位任务
 """
 from typing import Dict
-from data.kg_interface import create_kg_interface
+from data.kg_interface import KnowledgeGraphInterface
 from agents.log_parser_agent import LogParserAgent
 from agents.entity_locator_agent import EntityLocatorAgent
 from agents.chain_tracer_agent import CallChainTracerAgent
@@ -15,29 +15,26 @@ console = Console()
 
 
 class MasterCoordinator:
-    """主协调器 - MVP版本"""
-    
-    def __init__(self, neo4j_uri: str = None, neo4j_user: str = None, 
-                 neo4j_password: str = None, llm_client=None):
+    """主协调器"""
+
+    def __init__(self, data_dir: str = None, llm_client=None):
         """
         初始化协调器
-        
+
         Args:
-            neo4j_uri: Neo4j URI
-            neo4j_user: Neo4j用户名
-            neo4j_password: Neo4j密码
+            data_dir: 数据文件目录
             llm_client: LLM客户端（可选）
         """
         logger.info("初始化主协调器...")
-        
-        # 创建图谱接口
-        self.kg = create_kg_interface(neo4j_uri, neo4j_user, neo4j_password)
-        
+
+        # 创建知识图谱接口
+        self.kg = KnowledgeGraphInterface(data_dir)
+
         # 创建各个Agent
         self.log_parser = LogParserAgent()
         self.entity_locator = EntityLocatorAgent(self.kg)
         self.chain_tracer = CallChainTracerAgent(self.kg, llm_client)
-        
+
         logger.success("协调器初始化完成")
     
     def process(self, log_text: str) -> Dict:
@@ -54,7 +51,11 @@ class MasterCoordinator:
         
         # 第1步：日志解析
         print_step(1, 4, "解析错误日志")
-        parsed_log = self.log_parser.execute(log_text)
+        # 检测是否是 MMC 日志
+        if 'mmc' in log_text.lower() or 'tuning' in log_text.lower():
+            parsed_log = self.log_parser.parse_mmc_log(log_text)
+        else:
+            parsed_log = self.log_parser.execute(log_text)
         self._display_parsed_log(parsed_log)
         
         # 第2步：实体定位
@@ -158,16 +159,19 @@ class MasterCoordinator:
         table = Table(title="日志解析结果")
         table.add_column("项目", style="cyan")
         table.add_column("内容", style="green")
-        
+
         table.add_row("错误消息", str(parsed.get('error_messages', [])))
         table.add_row("错误码", str(parsed.get('error_codes', [])))
         table.add_row("涉及函数", ", ".join(parsed.get('functions', [])))
-        
+
+        if 'key_functions' in parsed:
+            table.add_row("关键函数", ", ".join(parsed['key_functions']))
+
         if 'inferred_entry' in parsed:
             table.add_row("推断入口", parsed['inferred_entry'])
         if 'inferred_error_point' in parsed:
             table.add_row("推断错误点", parsed['inferred_error_point'])
-        
+
         console.print(table)
         console.print()
     
@@ -215,7 +219,8 @@ class MasterCoordinator:
             console.print("[bold cyan]断点修复统计:[/bold cyan]")
             console.print(f"  总断点数: {stats['total_breaks']}")
             console.print(f"  规则修复: {stats['fixed_by_rules']}")
-            console.print(f"  LLM修复: {stats['fixed_by_llm']}")
+            console.print(f"  LLM源码分析修复: {stats.get('fixed_by_source_analysis', 0)} ✨")
+            console.print(f"  LLM推理修复: {stats['fixed_by_llm']}")
             console.print(f"  未修复: {stats['unfixed']}")
             console.print()
         
@@ -247,17 +252,26 @@ class MasterCoordinator:
         """显示最终报告"""
         success = report['success']
         chain = report['chain']
-        
+        stats = chain['stats']
+
+        # 计算已修复数量
+        fixed_count = (stats['fixed_by_rules'] +
+                      stats.get('fixed_by_source_analysis', 0) +
+                      stats['fixed_by_llm'])
+
         # 创建总结面板
         summary = f"""
 状态: {'✓ 成功' if success else '✗ 部分成功'}
 调用链长度: {chain['length']}
-总断点数: {chain['stats']['total_breaks']}
-已修复: {chain['stats']['fixed_by_rules'] + chain['stats']['fixed_by_llm']}
-未修复: {chain['stats']['unfixed']}
+总断点数: {stats['total_breaks']}
+已修复: {fixed_count}
+  - 规则修复: {stats['fixed_by_rules']}
+  - LLM源码分析: {stats.get('fixed_by_source_analysis', 0)} ✨
+  - LLM推理: {stats['fixed_by_llm']}
+未修复: {stats['unfixed']}
         """
-        
-        print_panel("分析总结", summary.strip(), 
+
+        print_panel("分析总结", summary.strip(),
                    style="green" if success else "yellow")
     
     def close(self):

@@ -10,13 +10,10 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from dotenv import load_dotenv
 from coordinator.master_coordinator import MasterCoordinator
+from llm.openai_client import OpenAIClient
 from utils.logger import setup_logger, print_header
 import json
-
-# 加载环境变量
-load_dotenv()
 
 # 配置日志
 setup_logger()
@@ -24,17 +21,23 @@ setup_logger()
 
 def run_mmc_case():
     """运行甲方MMC案例"""
-    
-    # 甲方提供的错误日志
+
+    # 甲方提供的错误日志（3行简单日志）
     mmc_error_log = """
+ALL phases bad!
 mmc0: tuning execution failed: -1
 mmc0: error -1 whilst initialising MMC card
     """
-    
+
     print_header("运行甲方MMC案例")
-    
-    # 创建协调器
-    coordinator = MasterCoordinator()
+
+    # 指定数据目录
+    data_dir = "/data/xuao/code_kg_search/linux_test/data"
+
+    # 创建协调器（不启用LLM）
+    # 注意: LLM源码分析功能已集成但暂未在主流程启用
+    # 可以通过传入 llm_client 参数启用
+    coordinator = MasterCoordinator(data_dir=data_dir, llm_client=None)
     
     try:
         # 方式1：自动推断起点和终点
@@ -81,18 +84,22 @@ mmc0: error -1 whilst initialising MMC card
 def run_custom_case(log_file: str):
     """
     运行自定义案例
-    
+
     Args:
         log_file: 日志文件路径
     """
     print_header(f"运行自定义案例: {log_file}")
-    
+
     # 读取日志
     with open(log_file, 'r', encoding='utf-8') as f:
         log_text = f.read()
-    
+
+    # 创建 LLM 客户端（可选）
+    llm_client = create_llm_client()
+
     # 创建协调器
-    coordinator = MasterCoordinator()
+    data_dir = "/data/xuao/code_kg_search/linux_test/data"
+    coordinator = MasterCoordinator(data_dir=data_dir, llm_client=llm_client)
     
     try:
         result = coordinator.process(log_text)

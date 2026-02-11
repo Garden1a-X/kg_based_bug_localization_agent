@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# Output
+output/
+*.out
+
+# Data files (large JSON files)
+data/temp_en.json
+data/relations.json
+data/entity_*.json
+data/relation_*.json
+
+# Private documents (never commit to git)
+private_docs/
+*.private.*
+*_private.*
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Neo4j
+.neo4j/
+
+# Jupyter Notebook
+.ipynb_checkpoints
